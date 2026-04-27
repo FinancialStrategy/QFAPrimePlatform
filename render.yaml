@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: qfa-prime-correct-charts
+    name: qfa-prime-daily-kernel
     env: python
     plan: free
     buildCommand: pip install --upgrade pip setuptools wheel && pip install --only-binary=:all: -r requirements.txt
@@ -10,3 +10,5 @@ services:
         value: 3.11.9
       - key: QFA_OUTPUT_DIR
         value: /tmp/qfa_output
+      - key: QFA_AUTO_INSTALL_REQUIRED
+        value: "0"

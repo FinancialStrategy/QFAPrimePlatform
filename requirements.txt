@@ -6,6 +6,7 @@ yfinance==0.2.58
 scikit-learn==1.5.2
 scipy==1.14.1
 plotly==5.24.1
+quantstats==0.0.64
 openpyxl==3.1.5
 python-multipart==0.0.20
 setuptools>=68
