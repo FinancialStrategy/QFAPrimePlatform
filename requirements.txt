@@ -1,11 +1,14 @@
-fastapi==0.116.1
-uvicorn[standard]==0.35.0
+# Render-safe pinned wheels for Python 3.11
+fastapi==0.115.8
+uvicorn[standard]==0.30.6
+pydantic==2.10.6
+
+numpy==1.26.4
 pandas==2.2.2
-numpy==2.0.2
-yfinance==0.2.65
-scikit-learn==1.6.1
-scipy==1.16.1
+scipy==1.11.4
+scikit-learn==1.5.2
+
 plotly==5.24.1
+yfinance==0.2.54
 openpyxl==3.1.5
 python-multipart==0.0.20
-pydantic==2.12.3

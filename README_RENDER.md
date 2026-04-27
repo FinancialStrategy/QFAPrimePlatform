@@ -1,39 +1,23 @@
-# QFA Prime Finance Platform — Render Deployment
+# QFA Prime Finance Platform — Render Deploy Fixed
 
-## Files
-- `app.py` — FastAPI application
-- `requirements.txt` — Python dependencies
-- `render.yaml` — optional Render Blueprint config
-- `runtime.txt` — Python version hint
+This package pins Python to 3.11.9 and uses wheel-only installs to avoid pandas being compiled from source on Render's newer default Python runtimes.
 
 ## Render settings
-Use these settings if deploying manually:
 
-- Environment: Python 3
-- Build command:
-
+Build Command:
 ```bash
-pip install --upgrade pip && pip install -r requirements.txt
+pip install --upgrade pip setuptools wheel && pip install --only-binary=:all: -r requirements.txt
 ```
 
-- Start command:
-
+Start Command:
 ```bash
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-- Environment variable:
-
-```bash
+Environment variables:
+```text
+PYTHON_VERSION=3.11.9
 QFA_OUTPUT_DIR=/tmp/qfa_output
 ```
 
-## Health checks
-After deployment, open:
-
-- `/`
-- `/health`
-- `/api/universe`
-
-## Important
-This build is locked to Yahoo Finance daily data logic. It does not use synthetic data. If Yahoo throttles or returns incomplete data, the app should fail explicitly rather than fabricate data.
+The repo includes both `.python-version` and `runtime.txt`. Render's official current method is `.python-version` or PYTHON_VERSION; runtime.txt is included as a fallback.
