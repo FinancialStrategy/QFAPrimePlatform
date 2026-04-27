@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: qfa-prime-finance-platform
+    name: qfa-prime-correct-charts
     env: python
     plan: free
     buildCommand: pip install --upgrade pip setuptools wheel && pip install --only-binary=:all: -r requirements.txt
