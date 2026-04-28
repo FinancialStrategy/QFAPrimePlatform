@@ -866,18 +866,21 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 pass
     frames: List[pd.Series] = []
     errors: List[str] = []
-    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "20" if has_bist else "8"))
+    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "4" if has_bist else "8"))
+    max_attempts = int(os.getenv("QFA_YF_MAX_ATTEMPTS", "2" if has_bist else "3"))
+    yf_timeout = int(os.getenv("QFA_YF_TIMEOUT", "14" if has_bist else "25"))
+    yf_pause = float(os.getenv("QFA_YF_PAUSE_SECONDS", "0.35" if has_bist else "0.75"))
     for batch_start in range(0, len(all_tickers), batch_size):
         batch = all_tickers[batch_start:batch_start + batch_size]
         data = pd.DataFrame()
-        for attempt in range(3):
+        for attempt in range(max_attempts):
             try:
-                data = yf.download(batch, start=start_date, interval="1d", auto_adjust=True, actions=False, progress=False, group_by="ticker", threads=False, timeout=25)
+                data = yf.download(batch, start=start_date, interval="1d", auto_adjust=True, actions=False, progress=False, group_by="ticker", threads=False, timeout=yf_timeout)
                 if not data.empty:
                     break
             except Exception as exc:
                 errors.append(f"{batch}: {exc}")
-                time.sleep(1.5 * (attempt + 1))
+                time.sleep(yf_pause * (attempt + 1))
         if data.empty:
             continue
         for t in batch:
@@ -885,7 +888,8 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
             if s is not None:
                 frames.append(s)
     if not frames:
-        raise ValueError("No usable Yahoo Finance daily price series returned. Synthetic/upload fallback is disabled; reduce the universe or retry Yahoo later.")
+        detail = "; ".join(errors[-5:]) if errors else "Yahoo returned empty responses."
+        raise ValueError("No usable Yahoo Finance daily price series returned. Synthetic/upload fallback is disabled; reduce the universe or retry Yahoo later. Details: " + detail)
     prices = pd.concat(frames, axis=1).sort_index()
     prices = prices.loc[:, ~prices.columns.duplicated()]
     if has_bist:
