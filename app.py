@@ -205,6 +205,15 @@ ETF_UNIVERSE = {
     "International Developed": ["VEA", "IEFA", "EFA", "VGK", "EWJ", "EWG", "EWU", "EWC"],
     "Emerging Markets": ["VWO", "IEMG", "EEM", "EWZ", "INDA", "FXI", "MCHI", "EWT", "EIDO", "EPOL", "EZA", "EPI"],
     "Turkey & EMEA": ["TUR", "GULF", "QDV5.DE", "DBXK.DE", "DX2J.DE", "IS3N.DE"],
+    "Türkiye BIST": [
+        "AKBNK.IS", "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "BIMAS.IS",
+        "EKGYO.IS", "ENKAI.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS",
+        "GUBRF.IS", "HALKB.IS", "ISCTR.IS", "KCHOL.IS", "KRDMD.IS",
+        "PETKM.IS", "PGSUS.IS", "SAHOL.IS", "SASA.IS", "SISE.IS",
+        "TAVHL.IS", "TCELL.IS", "THYAO.IS", "TOASO.IS", "TUPRS.IS",
+        "YKBNK.IS", "AEFES.IS", "MGROS.IS", "TTKOM.IS", "ULKER.IS",
+        "ANHYT.IS", "TURSG.IS", "ADEL.IS", "ALKLC.IS", "ALTNY.IS"
+    ],
     "EUR UCITS": ["SXR8.DE", "EUNL.DE", "VWCE.DE", "IUSQ.DE", "EXSA.DE", "XDAX.DE", "IQQE.DE", "VUSA.L", "VEVE.L", "VUAA.L", "CSPX.L", "IWDA.AS", "EMIM.L", "AGGH.L", "IEAC.L", "IGLN.L", "EUNA.DE", "XESC.DE", "XG7S.DE", "QDVX.DE", "SPPW.DE", "XDWD.DE", "XDWL.DE", "XMME.DE", "VJPN.DE", "VWCG.DE", "VETY.DE", "VDTA.DE", "VGEA.DE", "EL4C.DE"],
     "Fixed Income": ["AGG", "BND", "TLT", "IEF", "SHY", "LQD", "HYG", "MUB", "TIP", "BIL", "SGOV", "BILS"],
     "Real Assets": ["GLD", "IAU", "SLV", "DBC", "VNQ", "REET", "GSG", "PDBC"],
