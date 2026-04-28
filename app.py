@@ -204,8 +204,22 @@ DAILY_MEDIAN_GAP_LIMIT_DAYS = 3.5
 
 
 def normalize_benchmark_symbol(value: Any = None) -> str:
-    """Institutional benchmark is always S&P 500 Daily Index (^GSPC), never ETF proxy."""
-    return BENCHMARK_SYMBOL
+    """Normalize benchmark choices while forbidding benchmark proxy fabrication."""
+    v = str(value or BENCHMARK_SYMBOL).strip().upper()
+    aliases = {
+        "XU100_USD": XU100_USD_BENCHMARK_SYMBOL,
+        "^XU100_USD": XU100_USD_BENCHMARK_SYMBOL,
+        "XU100 (USD)": XU100_USD_BENCHMARK_SYMBOL,
+        "BIST100_USD": XU100_USD_BENCHMARK_SYMBOL,
+        "BIST 100 DAILY USD": XU100_USD_BENCHMARK_SYMBOL,
+        "XU100": XU100_TRY_SYMBOL,
+        "^XU100": XU100_TRY_SYMBOL,
+        "SP500": BENCHMARK_SYMBOL,
+        "S&P500": BENCHMARK_SYMBOL,
+        "S&P 500": BENCHMARK_SYMBOL,
+        "^GSPC": BENCHMARK_SYMBOL,
+    }
+    return aliases.get(v, BENCHMARK_SYMBOL)
 
 
 ETF_UNIVERSE = {
@@ -246,7 +260,7 @@ HTML_DOC = r'''<!DOCTYPE html>
 <noscript><div style="padding:24px;background:#fff3cd;color:#5c4100;font-family:Arial">JavaScript is disabled. Enable JavaScript to use QFA Prime.</div></noscript>
 <div id="bootBanner" style="padding:10px 16px;background:#10263f;color:white;font-family:Arial;font-size:13px">QFA Prime loading... If this message stays visible, Plotly CDN or browser JavaScript is being blocked, but backend is running.</div>
 <div class="shell"><aside class="sidebar"><div class="brand"><h1>QFA Prime Finance Platform</h1><p>Institutional single-file FastAPI + Plotly build optimized for Google Colab, Yahoo Finance, uploads, and benchmark-relative risk diagnostics.</p></div>
-<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><input type="text" id="benchmarkSymbol" value="S&P 500 Daily Index (^GSPC)" readonly></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
+<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="^XU100_USD">XU100 Daily USD (^XU100 / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (^XU100) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
 <div class="side-card"><h3>Portfolio Model Controls</h3><div class="side-grid"><div><label>Expected Return Method</label><select id="expReturnMethod"><option value="historical_mean">Historical Mean</option><option value="ema_historical">EMA Historical</option><option value="capm">CAPM-like Benchmark Beta</option></select></div><div><label>Covariance Method</label><select id="covMethod"><option value="ledoit_wolf">Ledoit-Wolf</option><option value="shrinkage">Shrinkage</option><option value="sample">Sample</option></select></div><div><label>Best Strategy Rule</label><select id="bestStrategyRule"><option value="highest_sharpe">Highest Sharpe</option><option value="lowest_tracking_error">Lowest Tracking Error</option><option value="highest_information_ratio">Highest Information Ratio</option><option value="minimum_volatility">Minimum Volatility</option></select></div></div></div>
 <div class="side-card"><h3>Stress Filters</h3><div class="side-grid"><div><label>Stress Family</label><select id="stressFamily"><option value="All">All</option><option value="crisis">crisis</option><option value="inflation">inflation</option><option value="banking stress">banking stress</option><option value="sharp rally">sharp rally</option><option value="sharp selloff">sharp selloff</option></select></div><div><label>Minimum Severity</label><input type="number" id="minSeverity" value="0" step="0.1"></div></div></div>
 <div class="side-card"><h3>Data Source Policy</h3><div class="side-grid"><div><label>Mode</label><input type="text" id="dataMode" value="Yahoo Finance Daily Only" readonly></div><div class="smallnote"><b>LOCKED:</b> Yahoo Finance adjusted daily prices only. Upload/synthetic/fallback price modes are disabled. Every chart is generated from portfolio DAILY RETURNS; no weekly/monthly resampling is allowed.</div></div></div>
@@ -266,7 +280,7 @@ HTML_DOC = r'''<!DOCTYPE html>
 <div class="footer">Institutional Quantitative Platform — MK Istanbul Fintech LabGEN @2026</div></main></div>
 <script>
 try{const b=document.getElementById('bootBanner'); if(b) b.style.display='none';}catch(e){}
-const QFA_BENCHMARK_SYMBOL = '^GSPC';
+function selectedBenchmarkSymbol(){return document.getElementById('benchmarkSymbol').value || '^GSPC';}
 const QFA_BUILD_ID = 'qfa_all_timeseries_daily_point_by_point_v1';
 let ETF_UNIVERSE = {}; let CURRENT = null;
 function status(msg){document.getElementById('statusBox').textContent=msg} function showTab(tabId,btn){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById(tabId).classList.add('active');btn.classList.add('active');setTimeout(()=>window.dispatchEvent(new Event('resize')),120)}
@@ -312,10 +326,10 @@ function dailyLayout(title, ytitle, yfmt=null){const lay={title:title,xaxis:{tit
 function plot(id,data,layout){if(typeof Plotly==='undefined'){document.getElementById(id).innerHTML='<div class="callout">Plotly CDN could not load. Backend and UI are running, but charts need internet/CDN access.</div>'; return;} Plotly.newPlot(id,data,Object.assign({paper_bgcolor:'white',plot_bgcolor:'white',font:{family:'Segoe UI, Arial',color:'#213043',size:12},margin:{l:74,r:42,t:70,b:82},legend:{orientation:'h',y:1.08,x:0.5,xanchor:'center'}},layout||{}),{responsive:true,displayModeBar:false})}
 function baseChartLayout(title, extra={}){return Object.assign({title:{text:title,x:0.5,font:{size:15}},paper_bgcolor:'white',plot_bgcolor:'white',font:{family:'Segoe UI, Arial',color:'#213043',size:12},margin:{l:78,r:55,t:78,b:88},legend:{orientation:'h',y:1.08,x:0.5,xanchor:'center'},hovermode:'x unified'},extra||{})}
 function pointSeries(points,key){return (points||[]).filter(p=>p&&p.Date!==undefined&&p[key]!==undefined&&p[key]!==null&&!isNaN(Number(p[key]))).map(p=>({x:p.Date,y:Number(p[key])}))}
-function plotEquityCurve(r){const eq=pointSeries(r.equity_daily_points||[],'Portfolio Equity Value');const beq=pointSeries(r.benchmark_equity_daily_points||[],'S&P 500 Equity Value');const s=r.summary||{};let ann=[];if(eq.length){const last=eq[eq.length-1];ann=[{x:0.02,y:0.95,xref:'paper',yref:'paper',text:`Initial: ${fmtMoney(r.meta.initial_capital)} → Final: ${fmtMoney(s.final_value)}<br>Total return: ${fmtPct((s.final_value/r.meta.initial_capital)-1)}`,showarrow:false,bgcolor:'rgba(255,255,255,.86)',bordercolor:'#2E86AB',borderwidth:1,font:{size:11}}]}plot('equityPlot',[{type:'scatter',mode:'lines',name:`${r.meta.best_strategy} Portfolio`,x:eq.map(p=>p.x),y:eq.map(p=>p.y),line:{width:2.4,color:'#2E86AB'},fill:'tozeroy',fillcolor:'rgba(46,134,171,.10)',hovertemplate:'%{x}<br>Portfolio: $%{y:,.0f}<extra></extra>'},{type:'scatter',mode:'lines',name:`Benchmark (${r.meta.benchmark})`,x:beq.map(p=>p.x),y:beq.map(p=>p.y),line:{width:1.7,color:'#E74C3C',dash:'dash'},hovertemplate:'%{x}<br>Benchmark: $%{y:,.0f}<extra></extra>'}],baseChartLayout('Portfolio vs Benchmark Equity Curve — Daily Compounding',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Portfolio Value',tickprefix:'$'},annotations:ann}))}
-function plotDrawdown(r){const dd=pointSeries(r.drawdown_daily_points||[],'Portfolio Daily Drawdown');const bd=pointSeries(r.benchmark_drawdown_daily_points||[],'S&P 500 Daily Drawdown');let minP=dd.reduce((a,b)=>b.y<a.y?b:a,{x:null,y:0});let annotations=minP.x?[{x:minP.x,y:minP.y,text:`Max DD: ${fmtPct(minP.y)}`,showarrow:true,arrowhead:2,arrowcolor:'#E74C3C',bgcolor:'rgba(255,255,255,.85)',font:{size:11}}]:[];plot('drawdownPlot',[{type:'scatter',mode:'lines',fill:'tozeroy',name:`${r.meta.best_strategy} Drawdown`,x:dd.map(p=>p.x),y:dd.map(p=>p.y),line:{color:'#E74C3C',width:1.6},fillcolor:'rgba(231,76,60,.30)',hovertemplate:'%{x}<br>Portfolio DD: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Benchmark Drawdown',x:bd.map(p=>p.x),y:bd.map(p=>p.y),line:{color:'#95A5A6',width:1.3,dash:'dash'},hovertemplate:'%{x}<br>Benchmark DD: %{y:.2%}<extra></extra>'}],baseChartLayout('Drawdown Analysis — Daily Returns, No Resampling',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Drawdown',tickformat:'.0%'},annotations}))}
+function plotEquityCurve(r){const eq=pointSeries(r.equity_daily_points||[],'Portfolio Equity Value');const beq=pointSeries(r.benchmark_equity_daily_points||[],'Benchmark Equity Value');const s=r.summary||{};let ann=[];if(eq.length){const last=eq[eq.length-1];ann=[{x:0.02,y:0.95,xref:'paper',yref:'paper',text:`Initial: ${fmtMoney(r.meta.initial_capital)} → Final: ${fmtMoney(s.final_value)}<br>Total return: ${fmtPct((s.final_value/r.meta.initial_capital)-1)}`,showarrow:false,bgcolor:'rgba(255,255,255,.86)',bordercolor:'#2E86AB',borderwidth:1,font:{size:11}}]}plot('equityPlot',[{type:'scatter',mode:'lines',name:`${r.meta.best_strategy} Portfolio`,x:eq.map(p=>p.x),y:eq.map(p=>p.y),line:{width:2.4,color:'#2E86AB'},fill:'tozeroy',fillcolor:'rgba(46,134,171,.10)',hovertemplate:'%{x}<br>Portfolio: $%{y:,.0f}<extra></extra>'},{type:'scatter',mode:'lines',name:`Benchmark (${r.meta.benchmark})`,x:beq.map(p=>p.x),y:beq.map(p=>p.y),line:{width:1.7,color:'#E74C3C',dash:'dash'},hovertemplate:'%{x}<br>Benchmark: $%{y:,.0f}<extra></extra>'}],baseChartLayout('Portfolio vs Benchmark Equity Curve — Daily Compounding',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Portfolio Value',tickprefix:'$'},annotations:ann}))}
+function plotDrawdown(r){const dd=pointSeries(r.drawdown_daily_points||[],'Portfolio Daily Drawdown');const bd=pointSeries(r.benchmark_drawdown_daily_points||[],'Benchmark Daily Drawdown');let minP=dd.reduce((a,b)=>b.y<a.y?b:a,{x:null,y:0});let annotations=minP.x?[{x:minP.x,y:minP.y,text:`Max DD: ${fmtPct(minP.y)}`,showarrow:true,arrowhead:2,arrowcolor:'#E74C3C',bgcolor:'rgba(255,255,255,.85)',font:{size:11}}]:[];plot('drawdownPlot',[{type:'scatter',mode:'lines',fill:'tozeroy',name:`${r.meta.best_strategy} Drawdown`,x:dd.map(p=>p.x),y:dd.map(p=>p.y),line:{color:'#E74C3C',width:1.6},fillcolor:'rgba(231,76,60,.30)',hovertemplate:'%{x}<br>Portfolio DD: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Benchmark Drawdown',x:bd.map(p=>p.x),y:bd.map(p=>p.y),line:{color:'#95A5A6',width:1.3,dash:'dash'},hovertemplate:'%{x}<br>Benchmark DD: %{y:.2%}<extra></extra>'}],baseChartLayout('Drawdown Analysis — Daily Returns, No Resampling',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Drawdown',tickformat:'.0%'},annotations}))}
 function rollingStd(vals,win){let out=[];for(let i=0;i<vals.length;i++){if(i<win-1){out.push(null);continue;}let a=vals.slice(i-win+1,i+1).filter(v=>v!==null&&!isNaN(v));let m=a.reduce((x,y)=>x+y,0)/a.length;let v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/(a.length-1);out.push(Math.sqrt(v)*Math.sqrt(252));}return out}
-function plotTrackingDynamic(r){const eq=pointSeries(r.equity_daily_points||[],'Portfolio Equity Value');const beq=pointSeries(r.benchmark_equity_daily_points||[],'S&P 500 Equity Value');const te=pointSeries(r.rolling_tracking_error_daily_points||[],'Rolling Tracking Error');const eqMap=new Map(eq.map(p=>[p.x,p.y]));const beqMap=new Map(beq.map(p=>[p.x,p.y]));const common=[...eqMap.keys()].filter(d=>beqMap.has(d)).sort();if(!common.length){document.getElementById('trackingDynamicPlot').innerHTML='<div class="note">No common daily points available for tracking-error chart.</div>';return;}const p0=eqMap.get(common[0]), b0=beqMap.get(common[0]);const xs=common, cp=common.map(d=>eqMap.get(d)/p0-1), cb=common.map(d=>beqMap.get(d)/b0-1);plot('trackingDynamicPlot',[{type:'scatter',mode:'lines',name:`${r.meta.best_strategy} Cum Return`,x:xs,y:cp,line:{color:'#2E86AB',width:2},hovertemplate:'%{x}<br>Portfolio Cum: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Benchmark Cum Return',x:xs,y:cb,line:{color:'#E74C3C',width:1.5},hovertemplate:'%{x}<br>Benchmark Cum: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Rolling Tracking Error',x:te.map(p=>p.x),y:te.map(p=>p.y),yaxis:'y2',line:{color:'#F39C12',width:1.5,dash:'dot'},hovertemplate:'%{x}<br>Rolling TE: %{y:.2%}<extra></extra>'}],baseChartLayout('Benchmark vs Tracking-Error Dynamic Curve — daily aligned',{xaxis:{title:'Date'},yaxis:{title:'Cumulative Return',tickformat:'.0%'},yaxis2:{title:'Rolling TE',overlaying:'y',side:'right',tickformat:'.0%',showgrid:false}}))}
+function plotTrackingDynamic(r){const eq=pointSeries(r.equity_daily_points||[],'Portfolio Equity Value');const beq=pointSeries(r.benchmark_equity_daily_points||[],'Benchmark Equity Value');const te=pointSeries(r.rolling_tracking_error_daily_points||[],'Rolling Tracking Error');const eqMap=new Map(eq.map(p=>[p.x,p.y]));const beqMap=new Map(beq.map(p=>[p.x,p.y]));const common=[...eqMap.keys()].filter(d=>beqMap.has(d)).sort();if(!common.length){document.getElementById('trackingDynamicPlot').innerHTML='<div class="note">No common daily points available for tracking-error chart.</div>';return;}const p0=eqMap.get(common[0]), b0=beqMap.get(common[0]);const xs=common, cp=common.map(d=>eqMap.get(d)/p0-1), cb=common.map(d=>beqMap.get(d)/b0-1);plot('trackingDynamicPlot',[{type:'scatter',mode:'lines',name:`${r.meta.best_strategy} Cum Return`,x:xs,y:cp,line:{color:'#2E86AB',width:2},hovertemplate:'%{x}<br>Portfolio Cum: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Benchmark Cum Return',x:xs,y:cb,line:{color:'#E74C3C',width:1.5},hovertemplate:'%{x}<br>Benchmark Cum: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Rolling Tracking Error',x:te.map(p=>p.x),y:te.map(p=>p.y),yaxis:'y2',line:{color:'#F39C12',width:1.5,dash:'dot'},hovertemplate:'%{x}<br>Rolling TE: %{y:.2%}<extra></extra>'}],baseChartLayout('Benchmark vs Tracking-Error Dynamic Curve — daily aligned',{xaxis:{title:'Date'},yaxis:{title:'Cumulative Return',tickformat:'.0%'},yaxis2:{title:'Rolling TE',overlaying:'y',side:'right',tickformat:'.0%',showgrid:false}}))}
 function plotRollingAssetBetas(r){const rows=r.rolling_asset_beta_points||[];const assets=r.beta_summary?r.beta_summary.map(x=>x.Asset):[];if(!rows.length||!assets.length){document.getElementById('rollingAssetBetaPlot').innerHTML='<div class="note">No rolling asset beta data available.</div>';return;}const data=assets.map((a,i)=>({type:'scatter',mode:'lines',name:a,x:rows.map(x=>x.Date),y:rows.map(x=>x[a]),line:{width:1.5},opacity:i<8?0.95:0.35,visible:i<12?true:'legendonly',hovertemplate:'%{x}<br>'+a+' beta: %{y:.3f}<extra></extra>'}));plot('rollingAssetBetaPlot',data,baseChartLayout('Rolling Asset Betas vs S&P 500 — daily rolling covariance / variance',{height:620,xaxis:{title:'Date'},yaxis:{title:'Rolling Beta'},shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:1,y1:1,line:{dash:'dash',color:'gray'}}]}))}
 function plotTrackingErrorByStrategy(r){const rows=r.strategy_metrics||[];plot('trackingErrorByStrategyPlot',[{type:'bar',x:rows.map(x=>x.Strategy),y:rows.map(x=>x['Tracking Error']),text:rows.map(x=>fmtPct(x['Tracking Error'])),textposition:'outside',marker:{color:'#F39C12'},hovertemplate:'%{x}<br>Tracking Error: %{y:.2%}<extra></extra>'}],baseChartLayout('Tracking Error by Strategy — annualized active daily return volatility',{height:480,xaxis:{title:'Strategy',tickangle:35},yaxis:{title:'Tracking Error',tickformat:'.0%'},shapes:[{type:'line',xref:'paper',x0:0,x1:1,y0:0.06,y1:0.06,line:{dash:'dash',color:'#E74C3C'}}],annotations:[{xref:'paper',yref:'y',x:1,y:0.06,text:'Target 6%',showarrow:false,xanchor:'right',font:{size:11,color:'#E74C3C'}}]}))}
 function plotExecutiveDashboard(rows){const names=rows.map(x=>x.Strategy);const specs=[['annual_return','Annual Return','.2%','#2E86AB'],['sharpe_ratio','Sharpe Ratio','.2f','#6A994E'],['sortino_ratio','Sortino Ratio','.2f','#A23B72'],['max_drawdown','Max Drawdown','.2%','#E74C3C'],['information_ratio','Information Ratio','.2f','#F18F01'],['tracking_error','Tracking Error','.2%','#5D576B']];const keyMap={'Annual Return':'annual_return','Sharpe Ratio':'sharpe_ratio','Sortino Ratio':'sortino_ratio','Max Drawdown':'max_drawdown','Information Ratio':'information_ratio','Tracking Error':'tracking_error'};let data=[];let layout=baseChartLayout('Executive Strategy Dashboard — Separate Axes, Correct Units',{grid:{rows:2,columns:3,pattern:'independent'},showlegend:false,height:760,margin:{l:70,r:40,t:95,b:120}});specs.forEach((sp,i)=>{let axis=i+1;let xaxis='x'+(axis===1?'':axis),yaxis='y'+(axis===1?'':axis);let metric=sp[0];let vals=rows.map(r=> metric==='annual_return'?r['Annual Return']:metric==='sharpe_ratio'?r['Sharpe Ratio']:metric==='sortino_ratio'?r['Sortino Ratio']:metric==='max_drawdown'?r['Max Drawdown']:metric==='information_ratio'?r['Information Ratio']:r['Tracking Error']);data.push({type:'bar',x:names,y:vals,text:vals.map(v=>sp[2].includes('%')?fmtPct(v):fmtNum(v,2)),textposition:'outside',marker:{color:sp[3]},xaxis:xaxis,yaxis:yaxis,hovertemplate:'%{x}<br>'+sp[1]+': %{text}<extra></extra>'});layout['xaxis'+(axis===1?'':axis)]={title:'',tickangle:45,tickfont:{size:9}};layout['yaxis'+(axis===1?'':axis)]={title:sp[1],tickformat:sp[2].includes('%')?'.0%':undefined};});Plotly.newPlot('dashboardPlot',data,layout,{responsive:true,displayModeBar:false})}
@@ -328,8 +342,8 @@ function plotVarNavRatio(r, level){const key=level===99?'rolling_var_nav_99_poin
 async function fetchUniverse(){const res=await fetch('/api/universe');const js=await res.json();ETF_UNIVERSE=js.universe||{};buildDrilldown()} function buildDrilldown(){const host=document.getElementById('categoryDrilldown');host.innerHTML='';Object.entries(ETF_UNIVERSE).forEach(([cat,tickers],idx)=>{const box=document.createElement('div');box.className='category-box';box.innerHTML=`<div class="category-title"><span>${cat}</span><label><input type="checkbox" data-cat="${idx}" class="cat-toggle"> all</label></div>`;const list=document.createElement('div');list.className='ticker-list';tickers.forEach(t=>{const row=document.createElement('label');row.className='tick-item';row.innerHTML=`<input type="checkbox" class="ticker-check" data-category="${cat}" value="${t}"><span>${t}</span>`;list.appendChild(row)});box.appendChild(list);host.appendChild(box)});document.querySelectorAll('.cat-toggle').forEach(toggle=>{toggle.addEventListener('change',e=>{const cat=Object.keys(ETF_UNIVERSE)[Number(e.target.dataset.cat)];document.querySelectorAll(`.ticker-check[data-category="${cat}"]`).forEach(cb=>cb.checked=e.target.checked)})});['US Broad Equity','US Growth & Value','Emerging Markets','Fixed Income','Real Assets'].forEach(cat=>{document.querySelectorAll(`.ticker-check[data-category="${cat}"]`).forEach((cb,i)=>{if(i<Math.min(3,(ETF_UNIVERSE[cat]||[]).length))cb.checked=true})})}
 function selectedTickers(){return[...document.querySelectorAll('.ticker-check:checked')].map(x=>x.value)} function selectedCategories(){return[...new Set([...document.querySelectorAll('.ticker-check:checked')].map(x=>x.dataset.category))]}
 async function uploadAndParseFiles(){throw new Error('Upload mode is disabled: Yahoo Finance daily-only policy is locked.')}
-async function getYahooRows(tickers){const payload={tickers,start_date:document.getElementById('startDate').value,benchmark_symbol:QFA_BENCHMARK_SYMBOL,use_cache:false};const res=await fetch('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());return await res.json()}
-async function recompute(){try{status('Working...');const tickers=selectedTickers();if(tickers.length<3){alert('Please select at least 3 ETFs.');status('Ready.');return}let metadata=[];const yh=await getYahooRows(tickers);const rows=yh.rows;const payload={rows,data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,benchmark_symbol:QFA_BENCHMARK_SYMBOL,initial_capital:Number(document.getElementById('initialCapital').value||1000000),risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),rolling_window:Number(document.getElementById('rollingWindow').value||63),expected_return_method:document.getElementById('expReturnMethod').value,covariance_method:document.getElementById('covMethod').value,best_strategy_rule:document.getElementById('bestStrategyRule').value,stress_family:document.getElementById('stressFamily').value,min_severity:Number(document.getElementById('minSeverity').value||0)};const res=await fetch('/api/compute-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());const js=await res.json();CURRENT={report:js.report,metadata};renderAll();status('Done.')}catch(err){console.error(err);status('Failed.');alert(String(err))}}
+async function getYahooRows(tickers){const payload={tickers,start_date:document.getElementById('startDate').value,benchmark_symbol:selectedBenchmarkSymbol(),use_cache:false};const res=await fetch('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());return await res.json()}
+async function recompute(){try{status('Working...');const tickers=selectedTickers();if(tickers.length<3){alert('Please select at least 3 ETFs.');status('Ready.');return}let metadata=[];const yh=await getYahooRows(tickers);const rows=yh.rows;const payload={rows,data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,benchmark_symbol:selectedBenchmarkSymbol(),initial_capital:Number(document.getElementById('initialCapital').value||1000000),risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),rolling_window:Number(document.getElementById('rollingWindow').value||63),expected_return_method:document.getElementById('expReturnMethod').value,covariance_method:document.getElementById('covMethod').value,best_strategy_rule:document.getElementById('bestStrategyRule').value,stress_family:document.getElementById('stressFamily').value,min_severity:Number(document.getElementById('minSeverity').value||0)};const res=await fetch('/api/compute-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());const js=await res.json();CURRENT={report:js.report,metadata};renderAll();status('Done.')}catch(err){console.error(err);status('Failed.');alert(String(err))}}
 
 function getKpiToneForImpact(v){if(v<=-0.20)return 'border-left:6px solid #C73E1D'; if(v< -0.05)return 'border-left:6px solid #F39C12'; return 'border-left:6px solid #6A994E'}
 function plotStressRanking(r){
@@ -378,7 +392,7 @@ plot('strategyScatterPlot',[{type:'scatter',mode:'markers+text',x:rows.map(x=>x.
 document.getElementById('optimizerStatusBox').innerHTML=`<b>Optimizer engine:</b> ${r.meta.optimizer_engine||'Internal'}<br><b>PyPortfolioOpt status:</b> ${r.meta.pypfopt_status||'not reported'}<br><b>Input frequency:</b> daily returns only / daily-only calculation<br><b>Capital Market Line:</b> slope is based on selected portfolio Sharpe ratio and configured risk-free rate.`;
 renderTable('qsMetricsTable',r.quantstats_metrics);document.getElementById('qsStatusBox').innerHTML=`<b>Quantstats package status:</b> ${r.meta.quantstats_status||'not reported'}<br><b>Data alignment:</b> ${r.meta.data_alignment||'common sample'}<br><b>Daily audit:</b> ${(r.meta.daily_return_audit&&r.meta.daily_return_audit.return_observations)||'—'} observations; median gap ${(r.meta.daily_return_audit&&r.meta.daily_return_audit.median_gap_days)||'—'} days; lower-frequency aggregate used: false<br>Below: real quantstats HTML tearsheet when available, plus Plotly mirrors. All Quantstats and PyPortfolioOpt inputs are audited daily-return series; daily-only calculation is used.`;document.getElementById('qsHtmlFrameBox').innerHTML=(r.meta.quantstats_html_url?`<iframe src="${r.meta.quantstats_html_url}" style="width:100%;height:900px;border:1px solid #d9e4ef;border-radius:14px;background:white;"></iframe>`:`<div class="note">Full quantstats HTML was not generated in this runtime; using Plotly mirror charts below.</div>`);
 plot('dailyReturnHistPlot',[{type:'histogram',x:(r.portfolio_daily_return_points||[]).map(x=>x['Portfolio Daily Return']),nbinsx:80,marker:{color:'#2E86AB'}}],baseChartLayout('Daily Portfolio Return Distribution',{xaxis:{title:'Daily return',tickformat:'.1%'},yaxis:{title:'Frequency'}}));
-const prPts=r.portfolio_daily_return_points||[];const brPts=r.benchmark_daily_return_points||[];plot('dailyReturnTsPlot',[dailyPctTrace(prPts,'Portfolio Daily Return','Portfolio Daily Return',{line:{width:1.4,color:'#2E86AB'}}),dailyPctTrace(brPts,'S&P 500 Daily Return','S&P 500 Daily Return',{line:{width:1.1,color:'#E74C3C'},opacity:0.65})],baseChartLayout(`Portfolio and S&P 500 DAILY Returns — tick-by-tick trading days (${prPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Daily return',tickformat:'.1%'}}));
+const prPts=r.portfolio_daily_return_points||[];const brPts=r.benchmark_daily_return_points||[];plot('dailyReturnTsPlot',[dailyPctTrace(prPts,'Portfolio Daily Return','Portfolio Daily Return',{line:{width:1.4,color:'#2E86AB'}}),dailyPctTrace(brPts,'Benchmark Daily Return','Benchmark Daily Return',{line:{width:1.1,color:'#E74C3C'},opacity:0.65})],baseChartLayout(`Portfolio and S&P 500 DAILY Returns — tick-by-tick trading days (${prPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Daily return',tickformat:'.1%'}}));
 const rvPts=r.rolling_volatility_daily_points||[];const arPts=r.active_return_daily_points||[];plot('rollingVolPlot',[dailyPctTrace(rvPts,'Rolling Annualized Volatility','Rolling Annualized Volatility',{line:{width:2,color:'#F39C12'}})],baseChartLayout(`Rolling Annualized Volatility — daily returns (${rvPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Volatility',tickformat:'.0%'}}));plot('activeReturnPlot',[dailyPctTrace(arPts,'Cumulative Active Return','Cumulative Active Return',{line:{width:2,color:'#27AE60'}})],baseChartLayout(`Cumulative Active Return vs S&P 500 — DAILY points only (${arPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Cumulative active return',tickformat:'.0%'}}));document.getElementById('stressKpiGrid').innerHTML=`<div class="kpi-card" style="${getKpiToneForImpact(r.stress_kpis.worst_relative_return||0)}"><div class="kpi-label">Worst Scenario</div><div class="kpi-value">${r.stress_kpis.worst_scenario||'—'}</div><div class="kpi-sub">Impact: ${fmtPct(r.stress_kpis.worst_relative_return)}</div></div><div class="kpi-card" style="${(r.stress_kpis.average_severity||0)>=4?'border-left:6px solid #F39C12':'border-left:6px solid #6A994E'}"><div class="kpi-label">Avg Severity</div><div class="kpi-value">${fmtNum(r.stress_kpis.average_severity)}</div><div class="kpi-sub">Filtered scenarios</div></div><div class="kpi-card" style="${getKpiToneForImpact(r.stress_kpis.worst_drawdown||0)}"><div class="kpi-label">Worst Drawdown Proxy</div><div class="kpi-value">${fmtPct(r.stress_kpis.worst_drawdown)}</div><div class="kpi-sub">Scenario loss estimate</div></div><div class="kpi-card"><div class="kpi-label">Scenario Count</div><div class="kpi-value">${r.stress_kpis.count}</div><div class="kpi-sub">Red ${r.stress_kpis.red_count||0} • Amber ${r.stress_kpis.amber_count||0} • Green ${r.stress_kpis.green_count||0}</div></div>`;plotStressRanking(r);plotStressHeatmap(r)}
 document.getElementById('recomputeBtn').addEventListener('click',recompute);fetchUniverse();
 </script></body></html>'''
@@ -925,6 +939,74 @@ def clean_price_frame(price_df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, A
         raise ValueError("Price matrix is empty after parsing.")
     aligned, audit = enforce_daily_common_sample(df, ffill_limit=10)
     return aligned, audit
+
+def _fetch_yahoo_close_series_for_dates(symbol: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+    """Fetch one Yahoo daily Close series for an exact date range. No synthetic fallback."""
+    start_s = pd.Timestamp(start).strftime("%Y-%m-%d")
+    end_s = (pd.Timestamp(end) + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+    data = yf.download(symbol, start=start_s, end=end_s, interval="1d", auto_adjust=True, actions=False, progress=False, threads=False, timeout=25)
+    if data is None or data.empty:
+        raise ValueError(f"Yahoo Finance did not return required daily series {symbol}. Synthetic fallback is forbidden.")
+    sub = data
+    if isinstance(data.columns, pd.MultiIndex):
+        if symbol in data.columns.get_level_values(0):
+            sub = data[symbol]
+        else:
+            try:
+                sub = data.xs(symbol, axis=1, level=0)
+            except Exception:
+                sub = data.droplevel(0, axis=1) if data.columns.nlevels > 1 else data
+    col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
+    if col is None:
+        raise ValueError(f"Yahoo Finance series {symbol} has no Close column. Synthetic fallback is forbidden.")
+    s = pd.to_numeric(sub[col], errors="coerce").dropna().rename(symbol)
+    if getattr(s.index, "tz", None) is not None:
+        s.index = s.index.tz_localize(None)
+    s.index = pd.to_datetime(s.index).normalize()
+    if s.empty:
+        raise ValueError(f"Required Yahoo daily series {symbol} is empty after cleaning. Synthetic fallback is forbidden.")
+    return s
+
+
+def _ensure_bist_fx_benchmark_in_clean_prices(df: pd.DataFrame, requested_benchmark: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Guarantee XU100 USD benchmark for BIST analytics even if an older payload omitted it.
+
+    This does not fabricate data. It fetches Yahoo ^XU100 and USDTRY=X daily historical
+    series, aligns them to the exact clean daily price index, and creates ^XU100_USD.
+    """
+    out = df.copy()
+    audit: Dict[str, Any] = {
+        "bist_fx_engine_compute_guard_enabled": False,
+        "xU100_usd_benchmark_added_in_compute": False,
+        "benchmark_choice_requested": requested_benchmark,
+        "synthetic_fx_used": False,
+        "benchmark_proxy_used": False,
+    }
+    has_bist_assets = any(_is_turkish_bist_ticker(c) for c in out.columns)
+    if not has_bist_assets:
+        return out, audit
+    audit["bist_fx_engine_compute_guard_enabled"] = True
+    if XU100_USD_BENCHMARK_SYMBOL in out.columns and out[XU100_USD_BENCHMARK_SYMBOL].notna().sum() >= 60:
+        return out, audit
+    xu100_try = _fetch_yahoo_close_series_for_dates(XU100_TRY_SYMBOL, out.index.min(), out.index.max())
+    usdtry = _fetch_yahoo_close_series_for_dates(USDTRY_SYMBOL, out.index.min(), out.index.max())
+    fx_df = pd.concat([xu100_try.rename("XU100_TRY"), usdtry.rename("USDTRY")], axis=1).sort_index()
+    fx_df = fx_df.reindex(out.index).ffill(limit=3)
+    fx_df = fx_df.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(fx_df) < 60:
+        raise ValueError("Could not build XU100 USD benchmark from Yahoo ^XU100 and USDTRY=X with sufficient daily observations. No proxy/fallback is allowed.")
+    xu100_usd = fx_df["XU100_TRY"].div(fx_df["USDTRY"]).rename(XU100_USD_BENCHMARK_SYMBOL)
+    out[XU100_USD_BENCHMARK_SYMBOL] = xu100_usd.reindex(out.index).ffill(limit=3)
+    out = out.dropna(subset=[XU100_USD_BENCHMARK_SYMBOL])
+    audit.update({
+        "xU100_usd_benchmark_added_in_compute": True,
+        "xU100_usd_observations": int(out[XU100_USD_BENCHMARK_SYMBOL].notna().sum()),
+        "xU100_usd_first_date": str(out[XU100_USD_BENCHMARK_SYMBOL].dropna().index.min().date()),
+        "xU100_usd_last_date": str(out[XU100_USD_BENCHMARK_SYMBOL].dropna().index.max().date()),
+        "conversion_formula": "XU100_USD = ^XU100 Close / USDTRY=X Close",
+    })
+    return out, audit
+
 
 def annualized_return(r: pd.Series) -> float:
     r = r.dropna()
@@ -1619,7 +1701,7 @@ def _build_daily_returns_matrix(returns: pd.DataFrame, bench_ret: pd.Series, pr:
     common = returns.index.intersection(bench_ret.index).intersection(pr.index)
     matrix = returns.loc[common].copy().astype(float)
     matrix.insert(0, "Portfolio Daily Return", pr.loc[common].astype(float))
-    matrix.insert(1, "S&P 500 Daily Return", bench_ret.loc[common].astype(float))
+    matrix.insert(1, "Benchmark Daily Return", bench_ret.loc[common].astype(float))
     matrix.insert(2, "Active Daily Return", (pr.loc[common] - bench_ret.loc[common]).astype(float))
     matrix.index = pd.to_datetime(matrix.index)
     matrix.index.name = "Date"
@@ -1679,7 +1761,7 @@ def compute_quantstats_payload(pr: pd.Series, bench_ret: pd.Series, rolling_wind
     daily_table = pd.DataFrame({
         "Date": [pd.Timestamp(x).strftime("%Y-%m-%d") for x in _idx],
         "Portfolio Daily Return": pr.dropna().values,
-        "S&P 500 Daily Return": bench_ret.reindex(_idx).values,
+        "Benchmark Daily Return": bench_ret.reindex(_idx).values,
         "Active Daily Return": (pr.dropna() - bench_ret.reindex(_idx)).values,
     })
     roll_vol = (pr.rolling(rolling_window, min_periods=max(20, rolling_window // 3)).std() * np.sqrt(TRADING_DAYS)).replace([np.inf, -np.inf], np.nan).dropna()
@@ -1698,6 +1780,8 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
             raise ValueError("Lower-frequency aggregation is forbidden. Every chart must use daily returns.")
     df, daily_audit = clean_price_frame(price_df)
     benchmark_symbol = normalize_benchmark_symbol(payload.get("benchmark_symbol", "^GSPC"))
+    df, compute_fx_audit = _ensure_bist_fx_benchmark_in_clean_prices(df, benchmark_symbol)
+    daily_audit["compute_stage_fx_benchmark_guard"] = compute_fx_audit
     rf = float(payload.get("risk_free_rate", DEFAULT_RF))
     initial_capital = float(payload.get("initial_capital", 1_000_000))
     rolling_window = int(payload.get("rolling_window", 63))
@@ -1718,7 +1802,7 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
     elif benchmark_symbol in returns_all.columns:
         active_benchmark_symbol = benchmark_symbol
         active_benchmark_label = BENCHMARK_LABEL if benchmark_symbol == BENCHMARK_SYMBOL else benchmark_symbol
-        bench_ret = returns_all[benchmark_symbol].rename("S&P 500 Daily Return")
+        bench_ret = returns_all[benchmark_symbol].rename("Benchmark Daily Return")
         returns = returns_all.drop(columns=[benchmark_symbol])
     else:
         raise ValueError("Required Yahoo benchmark ^GSPC is missing after daily price cleaning. Benchmark proxy/fallback is disabled.")
@@ -1786,13 +1870,13 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
 
     # Build and validate every frontend time-series chart from the same daily return matrix.
     equity_daily_points = _series_to_daily_points(eq, "Portfolio Equity Value")
-    benchmark_equity_daily_points = _series_to_daily_points(bench_curve, "S&P 500 Equity Value")
+    benchmark_equity_daily_points = _series_to_daily_points(bench_curve, "Benchmark Equity Value")
     portfolio_daily_return_points = _series_to_daily_points(pr, "Portfolio Daily Return")
-    benchmark_daily_return_points = _series_to_daily_points(bench_ret, "S&P 500 Daily Return")
+    benchmark_daily_return_points = _series_to_daily_points(bench_ret, "Benchmark Daily Return")
     active_daily_return_points = _series_to_daily_points(active, "Active Daily Return")
     active_return_daily_points = _series_to_daily_points(active_curve, "Cumulative Active Return")
     drawdown_daily_points = _daily_drawdown_points_from_returns(pr, "Portfolio Daily Drawdown")
-    benchmark_drawdown_daily_points = _daily_drawdown_points_from_returns(bench_ret, "S&P 500 Daily Drawdown")
+    benchmark_drawdown_daily_points = _daily_drawdown_points_from_returns(bench_ret, "Benchmark Daily Drawdown")
     rolling_sharpe_daily_points = _series_to_daily_points(roll_sharpe, "Rolling Sharpe")
     rolling_beta_daily_points = _series_to_daily_points(roll_beta, "Rolling Beta")
     rolling_tracking_error_daily_points = _series_to_daily_points(rolling_te, "Rolling Tracking Error")
