@@ -180,6 +180,16 @@ CASH_LIKE = {"BIL", "SHY", "SGOV", "BILS", "GBIL"}
 BENCHMARK_SYMBOL = "^GSPC"
 BENCHMARK_LABEL = "S&P 500 Daily (^GSPC)"
 
+# Turkish BIST FX-aware benchmark architecture
+# Turkish stocks are quoted in TRY on Yahoo Finance. For USD-consistent
+# institutional analytics, every .IS stock and XU100 benchmark level is
+# converted into USD by dividing the TRY price level by USDTRY=X on the
+# same daily historical date. No synthetic FX data or benchmark proxy is used.
+USDTRY_SYMBOL = "USDTRY=X"
+XU100_TRY_SYMBOL = "^XU100"
+XU100_USD_BENCHMARK_SYMBOL = "^XU100_USD"
+XU100_USD_BENCHMARK_LABEL = "BIST 100 Daily USD (^XU100 / USDTRY=X)"
+
 # -----------------------------------------------------------------------------
 # NON-NEGOTIABLE DATA POLICY
 # -----------------------------------------------------------------------------
@@ -685,13 +695,79 @@ def ensure_wide_price_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def _cache_key(tickers: List[str], start_date: str) -> Path:
     safe = "_".join([t.replace("^", "IDX").replace(".", "_") for t in sorted(tickers)])[:180]
-    return CACHE_DIR / f"yahoo_1d_daily_returns_matrix_v5_{safe}_{start_date}.csv"
+    return CACHE_DIR / f"yahoo_1d_fxaware_daily_returns_matrix_v7_{safe}_{start_date}.csv"
 
+
+
+def _is_turkish_bist_ticker(ticker: Any) -> bool:
+    return str(ticker).upper().endswith(".IS")
+
+
+def _extract_yahoo_close_series(data: pd.DataFrame, ticker: str, batch: List[str]) -> Optional[pd.Series]:
+    """Extract the adjusted/close-like Yahoo series for one ticker from yf.download output."""
+    if data is None or data.empty:
+        return None
+    try:
+        if isinstance(data.columns, pd.MultiIndex):
+            if ticker not in data.columns.get_level_values(0):
+                return None
+            sub = data[ticker]
+            col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
+            if col is None:
+                return None
+            return pd.to_numeric(sub[col], errors="coerce").rename(ticker)
+        col = "Close" if "Close" in data.columns else ("Adj Close" if "Adj Close" in data.columns else None)
+        if col and len(batch) == 1:
+            return pd.to_numeric(data[col], errors="coerce").rename(ticker)
+    except Exception:
+        return None
+    return None
+
+
+def _apply_bist_usd_conversion(prices: pd.DataFrame, requested: List[str]) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Convert BIST TRY prices and XU100 TRY benchmark to USD using daily USDTRY=X."""
+    prices = prices.copy().sort_index()
+    requested_bist = [c for c in requested if _is_turkish_bist_ticker(c)]
+    audit: Dict[str, Any] = {
+        "fx_engine_enabled": bool(requested_bist),
+        "fx_symbol": USDTRY_SYMBOL,
+        "turkish_assets_detected": requested_bist,
+        "turkish_assets_converted_to_usd": [],
+        "xU100_benchmark_converted_to_usd": False,
+        "conversion_formula": "USD price = TRY close / USDTRY=X close",
+        "synthetic_fx_used": False,
+        "benchmark_proxy_used": False,
+    }
+    if not requested_bist:
+        return prices, audit
+    if USDTRY_SYMBOL not in prices.columns:
+        raise ValueError("Turkish BIST assets require Yahoo USDTRY=X daily historical FX series. USDTRY=X was not downloaded; synthetic FX fallback is forbidden.")
+    if XU100_TRY_SYMBOL not in prices.columns:
+        raise ValueError("Turkish BIST assets require Yahoo ^XU100 daily benchmark series. ^XU100 was not downloaded; benchmark proxy fallback is forbidden.")
+    fx = pd.to_numeric(prices[USDTRY_SYMBOL], errors="coerce").replace([np.inf, -np.inf], np.nan).ffill(limit=3)
+    if fx.dropna().empty:
+        raise ValueError("USDTRY=X daily FX series is empty after cleaning. Turkish USD conversion cannot proceed.")
+    if float(fx.dropna().median()) <= 0:
+        raise ValueError("USDTRY=X daily FX series has non-positive median level. Turkish USD conversion rejected.")
+    for col in requested_bist:
+        if col in prices.columns:
+            prices[col] = pd.to_numeric(prices[col], errors="coerce").div(fx)
+            audit["turkish_assets_converted_to_usd"].append(col)
+    prices[XU100_USD_BENCHMARK_SYMBOL] = pd.to_numeric(prices[XU100_TRY_SYMBOL], errors="coerce").div(fx)
+    audit["xU100_benchmark_converted_to_usd"] = True
+    audit["fx_first_date"] = str(fx.dropna().index.min().date()) if len(fx.dropna()) else ""
+    audit["fx_last_date"] = str(fx.dropna().index.max().date()) if len(fx.dropna()) else ""
+    audit["fx_observations"] = int(fx.notna().sum())
+    return prices, audit
 
 def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str = BENCHMARK_SYMBOL, use_cache: bool = False) -> pd.DataFrame:
-    requested = list(dict.fromkeys([t.strip() for t in tickers if str(t).strip()]))
+    requested = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
     bench = normalize_benchmark_symbol(benchmark_symbol)
-    all_tickers = list(dict.fromkeys(requested + [bench]))
+    has_bist = any(_is_turkish_bist_ticker(t) for t in requested)
+    required_market_series = [bench]
+    if has_bist:
+        required_market_series.extend([USDTRY_SYMBOL, XU100_TRY_SYMBOL])
+    all_tickers = list(dict.fromkeys(requested + required_market_series))
     if len(requested) < 3:
         raise ValueError("No tickers selected or fewer than 3 tickers selected.")
     cache_path = _cache_key(all_tickers, start_date)
@@ -702,8 +778,7 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 _cached_idx = pd.to_datetime(cached["Date"], errors="coerce").dropna().sort_values()
                 _gaps = _cached_idx.diff().dt.days.dropna()
                 _median_gap = float(_gaps.median()) if len(_gaps) else 1.0
-                # Never reuse a cache that looks lower-frequency.
-                if _median_gap <= 3.5:
+                if _median_gap <= DAILY_MEDIAN_GAP_LIMIT_DAYS:
                     return cached
             except Exception:
                 pass
@@ -722,34 +797,33 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 time.sleep(1.5 * (attempt + 1))
         if data.empty:
             continue
-        if isinstance(data.columns, pd.MultiIndex):
-            for t in batch:
-                if t in data.columns.get_level_values(0):
-                    sub = data[t]
-                    col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
-                    if col:
-                        s = pd.to_numeric(sub[col], errors="coerce").rename(t)
-                        frames.append(s)
-        else:
-            col = "Close" if "Close" in data.columns else ("Adj Close" if "Adj Close" in data.columns else None)
-            if col and len(batch) == 1:
-                frames.append(pd.to_numeric(data[col], errors="coerce").rename(batch[0]))
+        for t in batch:
+            s = _extract_yahoo_close_series(data, t, batch)
+            if s is not None:
+                frames.append(s)
     if not frames:
         raise ValueError("No usable Yahoo Finance daily price series returned. Synthetic/upload fallback is disabled; reduce the universe or retry Yahoo later.")
     prices = pd.concat(frames, axis=1).sort_index()
     prices = prices.loc[:, ~prices.columns.duplicated()]
-    # IMPORTANT: do not aggregate or pre-drop the Yahoo 1D matrix here.
-    # The institutional daily engine below builds the common business-day sample,
-    # applies capped forward fill, and computes daily_returns = prices.pct_change().
+    if has_bist:
+        prices, _fx_audit = _apply_bist_usd_conversion(prices, requested)
     usable_assets = [c for c in prices.columns if c in requested and c in prices.columns]
     if len(usable_assets) < 3:
-        raise ValueError(f"Too few usable ETFs after Yahoo daily cleanup: {usable_assets}. Synthetic/upload fallback is disabled; try a smaller universe or retry Yahoo later.")
-    keep = usable_assets + ([bench] if bench in prices.columns and bench not in usable_assets else [])
-    prices = prices[keep]
+        raise ValueError(f"Too few usable assets after Yahoo daily cleanup: {usable_assets}. Synthetic/upload fallback is disabled; try a smaller universe or retry Yahoo later.")
+    keep = list(usable_assets)
+    if has_bist:
+        if XU100_USD_BENCHMARK_SYMBOL not in prices.columns:
+            raise ValueError("BIST assets are selected but XU100 USD benchmark was not created. Benchmark proxy/fallback is disabled.")
+        keep.append(XU100_USD_BENCHMARK_SYMBOL)
+        if bench in prices.columns and bench not in keep:
+            keep.append(bench)
+    else:
+        if bench in prices.columns and bench not in keep:
+            keep.append(bench)
+    prices = prices[list(dict.fromkeys(keep))]
     out = prices.reset_index().rename(columns={prices.index.name or "index": "Date"})
     out.to_csv(cache_path, index=False)
     return out
-
 
 def enforce_daily_common_sample(df: pd.DataFrame, ffill_limit: int = 10) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Force Yahoo 1D data into one common daily business-day matrix; daily-only calculation."""
@@ -1633,7 +1707,17 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
     min_severity = float(payload.get("min_severity", 0.0))
 
     returns_all = df.pct_change().dropna()
-    if benchmark_symbol in returns_all.columns:
+    has_bist_assets = any(_is_turkish_bist_ticker(c) for c in returns_all.columns)
+    if has_bist_assets:
+        if XU100_USD_BENCHMARK_SYMBOL not in returns_all.columns:
+            raise ValueError("Turkish BIST assets require USD-converted XU100 benchmark (^XU100 / USDTRY=X). Benchmark proxy/fallback is disabled.")
+        active_benchmark_symbol = XU100_USD_BENCHMARK_SYMBOL
+        active_benchmark_label = XU100_USD_BENCHMARK_LABEL
+        bench_ret = returns_all[XU100_USD_BENCHMARK_SYMBOL].rename("XU100 USD Daily Return")
+        returns = returns_all.drop(columns=[c for c in [XU100_USD_BENCHMARK_SYMBOL, BENCHMARK_SYMBOL] if c in returns_all.columns])
+    elif benchmark_symbol in returns_all.columns:
+        active_benchmark_symbol = benchmark_symbol
+        active_benchmark_label = BENCHMARK_LABEL if benchmark_symbol == BENCHMARK_SYMBOL else benchmark_symbol
         bench_ret = returns_all[benchmark_symbol].rename("S&P 500 Daily Return")
         returns = returns_all.drop(columns=[benchmark_symbol])
     else:
@@ -1738,10 +1822,18 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
     }
     return {
         "meta": {
-            "benchmark": benchmark_symbol,
-            "benchmark_label": BENCHMARK_LABEL if benchmark_symbol == BENCHMARK_SYMBOL else benchmark_symbol,
+            "benchmark": active_benchmark_symbol,
+            "benchmark_label": active_benchmark_label,
             "benchmark_frequency": "Daily",
-            "data_frequency": "Yahoo Finance Daily 1D",
+            "data_frequency": "Yahoo Finance Daily 1D; BIST assets are USD-converted with USDTRY=X when selected",
+            "fx_engine": {
+                "enabled": bool(has_bist_assets),
+                "fx_symbol": USDTRY_SYMBOL if has_bist_assets else None,
+                "bist_price_conversion": "BIST TRY close / USDTRY=X close" if has_bist_assets else None,
+                "benchmark_conversion": "^XU100 TRY close / USDTRY=X close" if has_bist_assets else None,
+                "synthetic_fx_used": False,
+                "benchmark_proxy_used": False,
+            },
             "data_policy": "YAHOO_DAILY_ONLY_NO_SYNTHETIC_NO_RESAMPLE",
             "synthetic_data_used": False,
             "lower_frequency_aggregate_used": False,
