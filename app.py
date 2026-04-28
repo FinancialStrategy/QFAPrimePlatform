@@ -186,9 +186,10 @@ BENCHMARK_LABEL = "S&P 500 Daily (^GSPC)"
 # converted into USD by dividing the TRY price level by USDTRY=X on the
 # same daily historical date. No synthetic FX data or benchmark proxy is used.
 USDTRY_SYMBOL = "USDTRY=X"
-XU100_TRY_SYMBOL = "^XU100"
+XU100_TRY_SYMBOL = "XU100.IS"
+XU100_TRY_ALTERNATE_SYMBOLS = ["XU100.IS", "^XU100"]
 XU100_USD_BENCHMARK_SYMBOL = "^XU100_USD"
-XU100_USD_BENCHMARK_LABEL = "BIST 100 Daily USD (^XU100 / USDTRY=X)"
+XU100_USD_BENCHMARK_LABEL = "BIST 100 Daily USD (XU100.IS / USDTRY=X)"
 
 # -----------------------------------------------------------------------------
 # NON-NEGOTIABLE DATA POLICY
@@ -213,6 +214,7 @@ def normalize_benchmark_symbol(value: Any = None) -> str:
         "BIST100_USD": XU100_USD_BENCHMARK_SYMBOL,
         "BIST 100 DAILY USD": XU100_USD_BENCHMARK_SYMBOL,
         "XU100": XU100_TRY_SYMBOL,
+        "XU100.IS": XU100_TRY_SYMBOL,
         "^XU100": XU100_TRY_SYMBOL,
         "SP500": BENCHMARK_SYMBOL,
         "S&P500": BENCHMARK_SYMBOL,
@@ -260,7 +262,7 @@ HTML_DOC = r'''<!DOCTYPE html>
 <noscript><div style="padding:24px;background:#fff3cd;color:#5c4100;font-family:Arial">JavaScript is disabled. Enable JavaScript to use QFA Prime.</div></noscript>
 <div id="bootBanner" style="padding:10px 16px;background:#10263f;color:white;font-family:Arial;font-size:13px">QFA Prime loading... If this message stays visible, Plotly CDN or browser JavaScript is being blocked, but backend is running.</div>
 <div class="shell"><aside class="sidebar"><div class="brand"><h1>QFA Prime Finance Platform</h1><p>Institutional single-file FastAPI + Plotly build optimized for Google Colab, Yahoo Finance, uploads, and benchmark-relative risk diagnostics.</p></div>
-<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="^XU100_USD">XU100 Daily USD (^XU100 / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (^XU100) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
+<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="^XU100_USD">XU100 Daily USD (XU100.IS / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (XU100.IS) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
 <div class="side-card"><h3>Portfolio Model Controls</h3><div class="side-grid"><div><label>Expected Return Method</label><select id="expReturnMethod"><option value="historical_mean">Historical Mean</option><option value="ema_historical">EMA Historical</option><option value="capm">CAPM-like Benchmark Beta</option></select></div><div><label>Covariance Method</label><select id="covMethod"><option value="ledoit_wolf">Ledoit-Wolf</option><option value="shrinkage">Shrinkage</option><option value="sample">Sample</option></select></div><div><label>Best Strategy Rule</label><select id="bestStrategyRule"><option value="highest_sharpe">Highest Sharpe</option><option value="lowest_tracking_error">Lowest Tracking Error</option><option value="highest_information_ratio">Highest Information Ratio</option><option value="minimum_volatility">Minimum Volatility</option></select></div></div></div>
 <div class="side-card"><h3>Stress Filters</h3><div class="side-grid"><div><label>Stress Family</label><select id="stressFamily"><option value="All">All</option><option value="crisis">crisis</option><option value="inflation">inflation</option><option value="banking stress">banking stress</option><option value="sharp rally">sharp rally</option><option value="sharp selloff">sharp selloff</option></select></div><div><label>Minimum Severity</label><input type="number" id="minSeverity" value="0" step="0.1"></div></div></div>
 <div class="side-card"><h3>Data Source Policy</h3><div class="side-grid"><div><label>Mode</label><input type="text" id="dataMode" value="Yahoo Finance Daily Only" readonly></div><div class="smallnote"><b>LOCKED:</b> Yahoo Finance adjusted daily prices only. Upload/synthetic/fallback price modes are disabled. Every chart is generated from portfolio DAILY RETURNS; no weekly/monthly resampling is allowed.</div></div></div>
@@ -757,7 +759,7 @@ def _apply_bist_usd_conversion(prices: pd.DataFrame, requested: List[str]) -> Tu
     if USDTRY_SYMBOL not in prices.columns:
         raise ValueError("Turkish BIST assets require Yahoo USDTRY=X daily historical FX series. USDTRY=X was not downloaded; synthetic FX fallback is forbidden.")
     if XU100_TRY_SYMBOL not in prices.columns:
-        raise ValueError("Turkish BIST assets require Yahoo ^XU100 daily benchmark series. ^XU100 was not downloaded; benchmark proxy fallback is forbidden.")
+        raise ValueError("Turkish BIST assets require Yahoo XU100.IS daily benchmark series. XU100.IS was not downloaded; benchmark proxy fallback is forbidden.")
     fx = pd.to_numeric(prices[USDTRY_SYMBOL], errors="coerce").replace([np.inf, -np.inf], np.nan).ffill(limit=3)
     if fx.dropna().empty:
         raise ValueError("USDTRY=X daily FX series is empty after cleaning. Turkish USD conversion cannot proceed.")
@@ -940,38 +942,76 @@ def clean_price_frame(price_df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, A
     aligned, audit = enforce_daily_common_sample(df, ffill_limit=10)
     return aligned, audit
 
+def _extract_close_from_download(data: pd.DataFrame, symbol: str) -> Optional[pd.Series]:
+    """Extract a Yahoo Close/Adj Close series from single or MultiIndex download output."""
+    if data is None or data.empty:
+        return None
+    sub = data
+    try:
+        if isinstance(data.columns, pd.MultiIndex):
+            level0 = list(data.columns.get_level_values(0))
+            level1 = list(data.columns.get_level_values(1)) if data.columns.nlevels > 1 else []
+            if symbol in level0:
+                sub = data[symbol]
+            elif "Close" in level0:
+                s = data["Close"]
+                if isinstance(s, pd.DataFrame):
+                    col = symbol if symbol in s.columns else s.columns[0]
+                    return pd.to_numeric(s[col], errors="coerce").rename(symbol)
+                return pd.to_numeric(s, errors="coerce").rename(symbol)
+            elif "Adj Close" in level0:
+                s = data["Adj Close"]
+                if isinstance(s, pd.DataFrame):
+                    col = symbol if symbol in s.columns else s.columns[0]
+                    return pd.to_numeric(s[col], errors="coerce").rename(symbol)
+                return pd.to_numeric(s, errors="coerce").rename(symbol)
+            elif "Close" in level1:
+                try:
+                    s = data.xs("Close", axis=1, level=1)
+                    col = symbol if symbol in s.columns else s.columns[0]
+                    return pd.to_numeric(s[col], errors="coerce").rename(symbol)
+                except Exception:
+                    pass
+        col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
+        if col is not None:
+            s = sub[col]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
+            return pd.to_numeric(s, errors="coerce").rename(symbol)
+    except Exception:
+        return None
+    return None
+
 def _fetch_yahoo_close_series_for_dates(symbol: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
     """Fetch one Yahoo daily Close series for an exact date range. No synthetic fallback."""
     start_s = pd.Timestamp(start).strftime("%Y-%m-%d")
     end_s = (pd.Timestamp(end) + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
-    data = yf.download(symbol, start=start_s, end=end_s, interval="1d", auto_adjust=True, actions=False, progress=False, threads=False, timeout=25)
-    if data is None or data.empty:
-        raise ValueError(f"Yahoo Finance did not return required daily series {symbol}. Synthetic fallback is forbidden.")
-    sub = data
-    if isinstance(data.columns, pd.MultiIndex):
-        if symbol in data.columns.get_level_values(0):
-            sub = data[symbol]
-        else:
-            try:
-                sub = data.xs(symbol, axis=1, level=0)
-            except Exception:
-                sub = data.droplevel(0, axis=1) if data.columns.nlevels > 1 else data
-    col = "Close" if "Close" in sub.columns else ("Adj Close" if "Adj Close" in sub.columns else None)
-    if col is None:
-        raise ValueError(f"Yahoo Finance series {symbol} has no Close column. Synthetic fallback is forbidden.")
-    s = pd.to_numeric(sub[col], errors="coerce").dropna().rename(symbol)
-    if getattr(s.index, "tz", None) is not None:
-        s.index = s.index.tz_localize(None)
-    s.index = pd.to_datetime(s.index).normalize()
-    if s.empty:
-        raise ValueError(f"Required Yahoo daily series {symbol} is empty after cleaning. Synthetic fallback is forbidden.")
-    return s
+    candidates = XU100_TRY_ALTERNATE_SYMBOLS if symbol in {"^XU100", "XU100.IS", XU100_TRY_SYMBOL} else [symbol]
+    errors = []
+    for sym in candidates:
+        try:
+            data = yf.download(sym, start=start_s, end=end_s, interval="1d", auto_adjust=True, actions=False, progress=False, threads=False, timeout=25)
+            s = _extract_close_from_download(data, sym)
+            if s is None or s.dropna().empty:
+                errors.append(f"{sym}: no Close/Adj Close data")
+                continue
+            s = s.dropna().rename(symbol)
+            if getattr(s.index, "tz", None) is not None:
+                s.index = s.index.tz_localize(None)
+            s.index = pd.to_datetime(s.index).normalize()
+            if s.empty:
+                errors.append(f"{sym}: empty after cleaning")
+                continue
+            return s
+        except Exception as exc:
+            errors.append(f"{sym}: {exc}")
+    raise ValueError(f"Yahoo Finance did not return required daily series {symbol}. Tried {candidates}. Synthetic fallback is forbidden. Details: {'; '.join(errors[-3:])}")
 
 
 def _ensure_bist_fx_benchmark_in_clean_prices(df: pd.DataFrame, requested_benchmark: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Guarantee XU100 USD benchmark for BIST analytics even if an older payload omitted it.
 
-    This does not fabricate data. It fetches Yahoo ^XU100 and USDTRY=X daily historical
+    This does not fabricate data. It fetches Yahoo XU100.IS and USDTRY=X daily historical
     series, aligns them to the exact clean daily price index, and creates ^XU100_USD.
     """
     out = df.copy()
@@ -994,7 +1034,7 @@ def _ensure_bist_fx_benchmark_in_clean_prices(df: pd.DataFrame, requested_benchm
     fx_df = fx_df.reindex(out.index).ffill(limit=3)
     fx_df = fx_df.replace([np.inf, -np.inf], np.nan).dropna()
     if len(fx_df) < 60:
-        raise ValueError("Could not build XU100 USD benchmark from Yahoo ^XU100 and USDTRY=X with sufficient daily observations. No proxy/fallback is allowed.")
+        raise ValueError("Could not build XU100 USD benchmark from Yahoo XU100.IS and USDTRY=X with sufficient daily observations. No proxy/fallback is allowed.")
     xu100_usd = fx_df["XU100_TRY"].div(fx_df["USDTRY"]).rename(XU100_USD_BENCHMARK_SYMBOL)
     out[XU100_USD_BENCHMARK_SYMBOL] = xu100_usd.reindex(out.index).ffill(limit=3)
     out = out.dropna(subset=[XU100_USD_BENCHMARK_SYMBOL])
@@ -1003,7 +1043,7 @@ def _ensure_bist_fx_benchmark_in_clean_prices(df: pd.DataFrame, requested_benchm
         "xU100_usd_observations": int(out[XU100_USD_BENCHMARK_SYMBOL].notna().sum()),
         "xU100_usd_first_date": str(out[XU100_USD_BENCHMARK_SYMBOL].dropna().index.min().date()),
         "xU100_usd_last_date": str(out[XU100_USD_BENCHMARK_SYMBOL].dropna().index.max().date()),
-        "conversion_formula": "XU100_USD = ^XU100 Close / USDTRY=X Close",
+        "conversion_formula": "XU100_USD = XU100.IS Close / USDTRY=X Close",
     })
     return out, audit
 
