@@ -1640,7 +1640,14 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
 
     strategies = build_strategies(returns, bench_ret, rf, cov_method)
     metrics = [strategy_metrics(name, w, returns, bench_ret, initial_capital, rf) for name, w in strategies.items()]
+    if not strategies or not metrics:
+        raise ValueError("No portfolio strategy could be computed from the validated daily return matrix. Check asset coverage, optimizer constraints, and Yahoo availability.")
     best_name = choose_strategy(metrics, best_rule)
+    if best_name not in strategies:
+        raise ValueError(f"Selected strategy {best_name!r} is missing from computed strategy weights. Available strategies: {list(strategies.keys())}")
+    best_metric = next((m for m in metrics if m.get("Strategy") == best_name), None)
+    if best_metric is None:
+        raise ValueError(f"Selected strategy {best_name!r} has no metrics row. Metrics strategies: {[m.get('Strategy') for m in metrics]}")
     weights = strategies[best_name]
     pr = returns.mul(weights, axis=1).sum(axis=1).rename("Portfolio Daily Return")
     # SINGLE SOURCE OF TRUTH: all charts, PyPortfolioOpt diagnostics and Quantstats mirrors use this daily return series.
@@ -1653,7 +1660,6 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
     bench_curve = (1 + bench_ret).cumprod() * initial_capital
     dd = eq / eq.cummax() - 1
     bdd = bench_curve / bench_curve.cummax() - 1
-    best_metric = next(m for m in metrics if m["Strategy"] == best_name)
 
     cov = covariance_matrix(returns, cov_method)
     port_vol = math.sqrt(float(weights.values @ cov.loc[weights.index, weights.index].values @ weights.values)) if len(weights) else 0.0
