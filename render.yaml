@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: qfa-prime-daily-kernel
+    name: qfa-prime-platform
     env: python
     plan: free
     buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
@@ -12,3 +12,13 @@ services:
         value: /tmp/qfa_output
       - key: QFA_AUTO_INSTALL_REQUIRED
         value: "0"
+      - key: QFA_INSTALL_OPTIONAL
+        value: "0"
+      - key: QFA_YF_BATCH_SIZE
+        value: "4"
+      - key: QFA_YF_MAX_ATTEMPTS
+        value: "2"
+      - key: QFA_YF_TIMEOUT
+        value: "14"
+      - key: QFA_YF_PAUSE_SECONDS
+        value: "0.35"
