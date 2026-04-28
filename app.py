@@ -383,17 +383,28 @@ async function getYahooRows(tickers){
   return await qfaFetchJson('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
 }
 async function recompute(){try{
-  status('Working...');
+  status('Working: downloading Yahoo daily series and computing report on the server...');
   const tickers=selectedTickers();
   if(tickers.length<3){alert('Please select at least 3 instruments.');status('Ready.');return}
-  if(tickers.length>40 && !confirm('You selected '+tickers.length+' instruments. Yahoo may throttle large universes. Continue?')){status('Ready.');return}
+  if(tickers.length>45 && !confirm('You selected '+tickers.length+' instruments. Yahoo may throttle large universes. Continue?')){status('Ready.');return}
   const benchmark=enforceBenchmarkForSelection(tickers);
-  let metadata=[];
-  const yh=await getYahooRows(tickers);
-  const rows=yh.rows;
-  const payload={rows,data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,benchmark_symbol:benchmark,initial_capital:Number(document.getElementById('initialCapital').value||1000000),risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),rolling_window:Number(document.getElementById('rollingWindow').value||63),expected_return_method:document.getElementById('expReturnMethod').value,covariance_method:document.getElementById('covMethod').value,best_strategy_rule:document.getElementById('bestStrategyRule').value,stress_family:document.getElementById('stressFamily').value,min_severity:Number(document.getElementById('minSeverity').value||0)};
-  const js=await qfaFetchJson('/api/compute-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  CURRENT={report:js.report,metadata};renderAll();status('Done.');
+  const payload={
+    tickers:tickers,
+    start_date:document.getElementById('startDate').value,
+    use_cache:true,
+    data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,
+    benchmark_symbol:benchmark,
+    initial_capital:Number(document.getElementById('initialCapital').value||1000000),
+    risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),
+    rolling_window:Number(document.getElementById('rollingWindow').value||63),
+    expected_return_method:document.getElementById('expReturnMethod').value,
+    covariance_method:document.getElementById('covMethod').value,
+    best_strategy_rule:document.getElementById('bestStrategyRule').value,
+    stress_family:document.getElementById('stressFamily').value,
+    min_severity:Number(document.getElementById('minSeverity').value||0)
+  };
+  const js=await qfaFetchJson('/api/run-institutional-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  CURRENT={report:js.report,metadata:[]};renderAll();status('Done.');
 }catch(err){console.error(err);showUserError(err)}}
 
 function getKpiToneForImpact(v){if(v<=-0.20)return 'border-left:6px solid #C73E1D'; if(v< -0.05)return 'border-left:6px solid #F39C12'; return 'border-left:6px solid #6A994E'}
@@ -855,7 +866,7 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 pass
     frames: List[pd.Series] = []
     errors: List[str] = []
-    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "4"))
+    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "20" if has_bist else "8"))
     for batch_start in range(0, len(all_tickers), batch_size):
         batch = all_tickers[batch_start:batch_start + batch_size]
         data = pd.DataFrame()
@@ -2183,6 +2194,42 @@ async def parse_upload(price_file: UploadFile = File(...), meta_file: Optional[U
         return api_ok(endpoint, {"prices": json_safe(p_df), "metadata": meta_rows}, saved_to=str(out_path), note=note)
     except Exception as exc:
         return api_error(endpoint, exc, hint="Use a wide file with Date plus price columns, or a long file with Date/Ticker/Close columns.")
+
+
+@app.post("/api/run-institutional-report")
+def run_institutional_report(payload: Dict[str, Any]) -> Response:
+    endpoint = "/api/run-institutional-report"
+    try:
+        tickers = payload.get("tickers") or []
+        if isinstance(tickers, str):
+            tickers = [x.strip() for x in tickers.replace(";", ",").split(",") if x.strip()]
+        tickers = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
+        if len(tickers) < 3:
+            raise ValueError("Please select at least 3 instruments.")
+        start_date = str(payload.get("start_date") or "2019-01-01")
+        benchmark_symbol = normalize_benchmark_symbol(payload.get("benchmark_symbol", BENCHMARK_SYMBOL))
+        if any(_is_turkish_bist_ticker(t) for t in tickers):
+            benchmark_symbol = XU100_USD_BENCHMARK_SYMBOL
+        use_cache = bool(payload.get("use_cache", True))
+        prices = load_yahoo_prices(tickers, start_date, benchmark_symbol, use_cache=use_cache)
+        if prices.empty or prices.shape[1] < 4:
+            raise ValueError("Yahoo returned an insufficient price matrix after cleanup.")
+        compute_payload = dict(payload)
+        compute_payload.update({
+            "rows": json_safe(prices),
+            "benchmark_symbol": benchmark_symbol,
+            "data_source": "yahoo",
+            "source_interval": "1d",
+            "synthetic_data_allowed": False,
+            "lower_frequency_aggregate_allowed": False,
+        })
+        report = compute_institutional_report(prices, compute_payload)
+        safe_report = assert_json_serializable(report, "institutional_report")
+        out_path = OUTPUT_DIR / "computed_institutional_report.json"
+        out_path.write_text(json.dumps(qfa_json_content(safe_report, "computed_report_file"), ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        return api_ok(endpoint, {"report": safe_report}, saved_to=str(out_path), note="Yahoo daily download and compute completed server-side to reduce client payload and 502 risk.")
+    except Exception as exc:
+        return api_error(endpoint, exc, hint="If Yahoo throttles, retry after a few minutes or select fewer tickers; server-side cache remains enabled.")
 
 
 @app.post("/api/compute-report")
