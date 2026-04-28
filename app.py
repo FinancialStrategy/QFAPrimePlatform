@@ -188,7 +188,7 @@ BENCHMARK_LABEL = "S&P 500 Daily (^GSPC)"
 USDTRY_SYMBOL = "USDTRY=X"
 XU100_TRY_SYMBOL = "XU100.IS"
 XU100_TRY_ALTERNATE_SYMBOLS = ["XU100.IS", "^XU100"]
-XU100_USD_BENCHMARK_SYMBOL = "^XU100_USD"
+XU100_USD_BENCHMARK_SYMBOL = "XU100_USD"
 XU100_USD_BENCHMARK_LABEL = "BIST 100 Daily USD (XU100.IS / USDTRY=X)"
 
 # -----------------------------------------------------------------------------
@@ -262,7 +262,7 @@ HTML_DOC = r'''<!DOCTYPE html>
 <noscript><div style="padding:24px;background:#fff3cd;color:#5c4100;font-family:Arial">JavaScript is disabled. Enable JavaScript to use QFA Prime.</div></noscript>
 <div id="bootBanner" style="padding:10px 16px;background:#10263f;color:white;font-family:Arial;font-size:13px">QFA Prime loading... If this message stays visible, Plotly CDN or browser JavaScript is being blocked, but backend is running.</div>
 <div class="shell"><aside class="sidebar"><div class="brand"><h1>QFA Prime Finance Platform</h1><p>Institutional single-file FastAPI + Plotly build optimized for Google Colab, Yahoo Finance, uploads, and benchmark-relative risk diagnostics.</p></div>
-<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="^XU100_USD">XU100 Daily USD (XU100.IS / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (XU100.IS) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
+<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="XU100_USD">XU100 Daily USD (XU100.IS / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (XU100.IS) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
 <div class="side-card"><h3>Portfolio Model Controls</h3><div class="side-grid"><div><label>Expected Return Method</label><select id="expReturnMethod"><option value="historical_mean">Historical Mean</option><option value="ema_historical">EMA Historical</option><option value="capm">CAPM-like Benchmark Beta</option></select></div><div><label>Covariance Method</label><select id="covMethod"><option value="ledoit_wolf">Ledoit-Wolf</option><option value="shrinkage">Shrinkage</option><option value="sample">Sample</option></select></div><div><label>Best Strategy Rule</label><select id="bestStrategyRule"><option value="highest_sharpe">Highest Sharpe</option><option value="lowest_tracking_error">Lowest Tracking Error</option><option value="highest_information_ratio">Highest Information Ratio</option><option value="minimum_volatility">Minimum Volatility</option></select></div></div></div>
 <div class="side-card"><h3>Stress Filters</h3><div class="side-grid"><div><label>Stress Family</label><select id="stressFamily"><option value="All">All</option><option value="crisis">crisis</option><option value="inflation">inflation</option><option value="banking stress">banking stress</option><option value="sharp rally">sharp rally</option><option value="sharp selloff">sharp selloff</option></select></div><div><label>Minimum Severity</label><input type="number" id="minSeverity" value="0" step="0.1"></div></div></div>
 <div class="side-card"><h3>Data Source Policy</h3><div class="side-grid"><div><label>Mode</label><input type="text" id="dataMode" value="Yahoo Finance Daily Only" readonly></div><div class="smallnote"><b>LOCKED:</b> Yahoo Finance adjusted daily prices only. Upload/synthetic/fallback price modes are disabled. Every chart is generated from portfolio DAILY RETURNS; no weekly/monthly resampling is allowed.</div></div></div>
@@ -421,7 +421,7 @@ class YahooPricesRequest(BaseModel):
     tickers: List[str] = Field(..., min_items=3)
     start_date: str = Field("2019-01-01")
     benchmark_symbol: str = Field("^GSPC")
-    use_cache: bool = Field(False)
+    use_cache: bool = Field(True)
 
     @validator("tickers", pre=True)
     def clean_tickers(cls, value: Any) -> List[str]:
@@ -780,10 +780,16 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
     requested = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
     bench = normalize_benchmark_symbol(benchmark_symbol)
     has_bist = any(_is_turkish_bist_ticker(t) for t in requested)
-    required_market_series = [bench]
+
+    # FX-aware rule: XU100_USD is an INTERNAL synthetic column name created from
+    # real Yahoo series (XU100.IS / USDTRY=X). It must NEVER be sent to Yahoo as a ticker.
     if has_bist:
-        required_market_series.extend([USDTRY_SYMBOL, XU100_TRY_SYMBOL])
-    all_tickers = list(dict.fromkeys(requested + required_market_series))
+        required_market_series = [USDTRY_SYMBOL, XU100_TRY_SYMBOL]
+    else:
+        required_market_series = [bench]
+
+    yahoo_download_tickers = [t for t in requested + required_market_series if t not in {XU100_USD_BENCHMARK_SYMBOL, "^XU100_USD"}]
+    all_tickers = list(dict.fromkeys(yahoo_download_tickers))
     if len(requested) < 3:
         raise ValueError("No tickers selected or fewer than 3 tickers selected.")
     cache_path = _cache_key(all_tickers, start_date)
@@ -800,8 +806,9 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 pass
     frames: List[pd.Series] = []
     errors: List[str] = []
-    for batch_start in range(0, len(all_tickers), 12):
-        batch = all_tickers[batch_start:batch_start + 12]
+    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "6"))
+    for batch_start in range(0, len(all_tickers), batch_size):
+        batch = all_tickers[batch_start:batch_start + batch_size]
         data = pd.DataFrame()
         for attempt in range(3):
             try:
@@ -829,10 +836,9 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
     keep = list(usable_assets)
     if has_bist:
         if XU100_USD_BENCHMARK_SYMBOL not in prices.columns:
-            raise ValueError("BIST assets are selected but XU100 USD benchmark was not created. Benchmark proxy/fallback is disabled.")
+            raise ValueError("BIST assets are selected but XU100 USD benchmark was not created from XU100.IS / USDTRY=X. Benchmark proxy/fallback is disabled.")
         keep.append(XU100_USD_BENCHMARK_SYMBOL)
-        if bench in prices.columns and bench not in keep:
-            keep.append(bench)
+        # Do not append internal/alternate benchmark symbols here; BIST analytics use XU100_USD.
     else:
         if bench in prices.columns and bench not in keep:
             keep.append(bench)
@@ -1834,7 +1840,7 @@ def compute_institutional_report(price_df: pd.DataFrame, payload: Dict[str, Any]
     has_bist_assets = any(_is_turkish_bist_ticker(c) for c in returns_all.columns)
     if has_bist_assets:
         if XU100_USD_BENCHMARK_SYMBOL not in returns_all.columns:
-            raise ValueError("Turkish BIST assets require USD-converted XU100 benchmark (^XU100 / USDTRY=X). Benchmark proxy/fallback is disabled.")
+            raise ValueError("Turkish BIST assets require USD-converted XU100 benchmark (XU100.IS / USDTRY=X). Benchmark proxy/fallback is disabled.")
         active_benchmark_symbol = XU100_USD_BENCHMARK_SYMBOL
         active_benchmark_label = XU100_USD_BENCHMARK_LABEL
         bench_ret = returns_all[XU100_USD_BENCHMARK_SYMBOL].rename("XU100 USD Daily Return")
