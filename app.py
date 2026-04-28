@@ -283,6 +283,36 @@ HTML_DOC = r'''<!DOCTYPE html>
 <script>
 try{const b=document.getElementById('bootBanner'); if(b) b.style.display='none';}catch(e){}
 function selectedBenchmarkSymbol(){return document.getElementById('benchmarkSymbol').value || '^GSPC';}
+function hasTurkishSelection(tickers){return (tickers||[]).some(t=>String(t).toUpperCase().endsWith('.IS'))}
+function enforceBenchmarkForSelection(tickers){
+  const sel=document.getElementById('benchmarkSymbol');
+  if(hasTurkishSelection(tickers) && sel && sel.value !== 'XU100_USD'){
+    sel.value='XU100_USD';
+    status('Türkiye BIST detected: benchmark switched to XU100 Daily USD.');
+  }
+  return selectedBenchmarkSymbol();
+}
+function cleanBackendError(raw){
+  let s=String(raw||'Unknown error');
+  if(s.includes('<!DOCTYPE html') || s.includes('<html')){
+    if(s.includes('<title>502</title>') || s.includes('502')) return 'Render returned 502 while Yahoo/compute request was running. This is usually a temporary Render/Yahoo throttling or service restart issue. Retry with fewer tickers first; cache is now enabled.';
+    s=s.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+  }
+  try{const j=JSON.parse(s); return j.message || j.error || s;}catch(e){}
+  return s.slice(0,900);
+}
+async function qfaFetchJson(url, options){
+  const res=await fetch(url, options);
+  const txt=await res.text();
+  if(!res.ok){throw new Error(cleanBackendError(txt));}
+  try{return JSON.parse(txt);}catch(e){throw new Error('Server returned non-JSON response: '+cleanBackendError(txt));}
+}
+function showUserError(err){
+  const msg=cleanBackendError(err && err.message ? err.message : err);
+  status('Failed: '+msg.slice(0,180));
+  alert(msg);
+}
+
 const QFA_BUILD_ID = 'qfa_all_timeseries_daily_point_by_point_v1';
 let ETF_UNIVERSE = {}; let CURRENT = null;
 function status(msg){document.getElementById('statusBox').textContent=msg} function showTab(tabId,btn){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById(tabId).classList.add('active');btn.classList.add('active');setTimeout(()=>window.dispatchEvent(new Event('resize')),120)}
@@ -341,11 +371,30 @@ function plotFinquantMc(r){const cloud=r.monte_carlo_frontier||[];const frontier
 function plotRiskBars(r){const rows=r.strategy_metrics||[];plot('riskBarPlot',[{type:'bar',name:'VaR 95',x:rows.map(x=>x.Strategy),y:rows.map(x=>x['VaR 95']),text:rows.map(x=>fmtPct(x['VaR 95'])),textposition:'auto',marker:{color:'#E74C3C'}},{type:'bar',name:'CVaR 95',x:rows.map(x=>x.Strategy),y:rows.map(x=>x['CVaR 95']),text:rows.map(x=>fmtPct(x['CVaR 95'])),textposition:'auto',marker:{color:'#F39C12'}},{type:'bar',name:'Relative CVaR 95',x:rows.map(x=>x.Strategy),y:rows.map(x=>x['Relative CVaR 95']),text:rows.map(x=>fmtPct(x['Relative CVaR 95'])),textposition:'auto',marker:{color:'#9B59B6'}}],baseChartLayout('VaR / CVaR Figures — Positive Loss Magnitudes',{barmode:'group',xaxis:{tickangle:35},yaxis:{title:'Loss Magnitude',tickformat:'.0%'}}))}
 function plotVarNavRatio(r, level){const key=level===99?'rolling_var_nav_99_points':'rolling_var_nav_95_points';const valueKey=level===99?'VaR NAV Ratio 99':'VaR NAV Ratio 95';const id=level===99?'varNav99Plot':'varNav95Plot';const pts=pointSeries(r[key]||[], valueKey);if(!pts.length){document.getElementById(id).innerHTML='<div class="note">No rolling VaR/NAV ratio points available. Need at least 63 daily observations.</div>';return;}const maxPt=pts.reduce((a,b)=>b.y>a.y?b:a,{x:null,y:-Infinity});const annotations=maxPt.x?[{x:maxPt.x,y:maxPt.y,text:`Peak: ${fmtPct(maxPt.y)}`,showarrow:true,arrowhead:2,bgcolor:'rgba(255,255,255,.88)',font:{size:11}}]:[];plot(id,[{type:'scatter',mode:'lines',name:`3M VaR / NAV ${level}%`,x:pts.map(p=>p.x),y:pts.map(p=>p.y),line:{width:2.1,color:level===99?'#A23B72':'#E74C3C'},fill:'tozeroy',fillcolor:level===99?'rgba(162,59,114,.14)':'rgba(231,76,60,.14)',hovertemplate:'%{x}<br>VaR/NAV: %{y:.3%}<extra></extra>'}],baseChartLayout(`3-Month VaR / NAV Ratio Evolution (${level}%) — daily rolling 63D`,{height:430,xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'VaR / NAV Ratio',tickformat:'.1%'},annotations}))}
 
-async function fetchUniverse(){const res=await fetch('/api/universe');const js=await res.json();ETF_UNIVERSE=js.universe||{};buildDrilldown()} function buildDrilldown(){const host=document.getElementById('categoryDrilldown');host.innerHTML='';Object.entries(ETF_UNIVERSE).forEach(([cat,tickers],idx)=>{const box=document.createElement('div');box.className='category-box';box.innerHTML=`<div class="category-title"><span>${cat}</span><label><input type="checkbox" data-cat="${idx}" class="cat-toggle"> all</label></div>`;const list=document.createElement('div');list.className='ticker-list';tickers.forEach(t=>{const row=document.createElement('label');row.className='tick-item';row.innerHTML=`<input type="checkbox" class="ticker-check" data-category="${cat}" value="${t}"><span>${t}</span>`;list.appendChild(row)});box.appendChild(list);host.appendChild(box)});document.querySelectorAll('.cat-toggle').forEach(toggle=>{toggle.addEventListener('change',e=>{const cat=Object.keys(ETF_UNIVERSE)[Number(e.target.dataset.cat)];document.querySelectorAll(`.ticker-check[data-category="${cat}"]`).forEach(cb=>cb.checked=e.target.checked)})});['US Broad Equity','US Growth & Value','Emerging Markets','Fixed Income','Real Assets'].forEach(cat=>{document.querySelectorAll(`.ticker-check[data-category="${cat}"]`).forEach((cb,i)=>{if(i<Math.min(3,(ETF_UNIVERSE[cat]||[]).length))cb.checked=true})})}
+async function fetchUniverse(){const res=await fetch('/api/universe');const js=await res.json();ETF_UNIVERSE=js.universe||{};buildDrilldown()} function buildDrilldown(){const host=document.getElementById('categoryDrilldown');host.innerHTML='';Object.entries(ETF_UNIVERSE).forEach(([cat,tickers],idx)=>{const box=document.createElement('div');box.className='category-box';box.innerHTML=`<div class="category-title"><span>${cat}</span><label><input type="checkbox" data-cat="${idx}" class="cat-toggle"> all</label></div>`;const list=document.createElement('div');list.className='ticker-list';tickers.forEach(t=>{const row=document.createElement('label');row.className='tick-item';row.innerHTML=`<input type="checkbox" class="ticker-check" data-category="${cat}" value="${t}"><span>${t}</span>`;list.appendChild(row)});box.appendChild(list);host.appendChild(box)});document.querySelectorAll('.cat-toggle').forEach(toggle=>{toggle.addEventListener('change',e=>{const cat=Object.keys(ETF_UNIVERSE)[Number(e.target.dataset.cat)];document.querySelectorAll(`.ticker-check[data-category="${cat}"]`).forEach(cb=>cb.checked=e.target.checked)})});
+// No automatic ticker preselection. Users must intentionally choose the universe.
+// This prevents accidental mixed-universe Yahoo downloads and reduces rate-limit errors.
+}
 function selectedTickers(){return[...document.querySelectorAll('.ticker-check:checked')].map(x=>x.value)} function selectedCategories(){return[...new Set([...document.querySelectorAll('.ticker-check:checked')].map(x=>x.dataset.category))]}
 async function uploadAndParseFiles(){throw new Error('Upload mode is disabled: Yahoo Finance daily-only policy is locked.')}
-async function getYahooRows(tickers){const payload={tickers,start_date:document.getElementById('startDate').value,benchmark_symbol:selectedBenchmarkSymbol(),use_cache:false};const res=await fetch('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());return await res.json()}
-async function recompute(){try{status('Working...');const tickers=selectedTickers();if(tickers.length<3){alert('Please select at least 3 ETFs.');status('Ready.');return}let metadata=[];const yh=await getYahooRows(tickers);const rows=yh.rows;const payload={rows,data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,benchmark_symbol:selectedBenchmarkSymbol(),initial_capital:Number(document.getElementById('initialCapital').value||1000000),risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),rolling_window:Number(document.getElementById('rollingWindow').value||63),expected_return_method:document.getElementById('expReturnMethod').value,covariance_method:document.getElementById('covMethod').value,best_strategy_rule:document.getElementById('bestStrategyRule').value,stress_family:document.getElementById('stressFamily').value,min_severity:Number(document.getElementById('minSeverity').value||0)};const res=await fetch('/api/compute-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!res.ok)throw new Error(await res.text());const js=await res.json();CURRENT={report:js.report,metadata};renderAll();status('Done.')}catch(err){console.error(err);status('Failed.');alert(String(err))}}
+async function getYahooRows(tickers){
+  const benchmark=enforceBenchmarkForSelection(tickers);
+  const payload={tickers,start_date:document.getElementById('startDate').value,benchmark_symbol:benchmark,use_cache:true};
+  return await qfaFetchJson('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+}
+async function recompute(){try{
+  status('Working...');
+  const tickers=selectedTickers();
+  if(tickers.length<3){alert('Please select at least 3 instruments.');status('Ready.');return}
+  if(tickers.length>40 && !confirm('You selected '+tickers.length+' instruments. Yahoo may throttle large universes. Continue?')){status('Ready.');return}
+  const benchmark=enforceBenchmarkForSelection(tickers);
+  let metadata=[];
+  const yh=await getYahooRows(tickers);
+  const rows=yh.rows;
+  const payload={rows,data_source:'yahoo',source_interval:'1d',synthetic_data_allowed:false,lower_frequency_aggregate_allowed:false,benchmark_symbol:benchmark,initial_capital:Number(document.getElementById('initialCapital').value||1000000),risk_free_rate:Number(document.getElementById('riskFreeRate').value||0.045),rolling_window:Number(document.getElementById('rollingWindow').value||63),expected_return_method:document.getElementById('expReturnMethod').value,covariance_method:document.getElementById('covMethod').value,best_strategy_rule:document.getElementById('bestStrategyRule').value,stress_family:document.getElementById('stressFamily').value,min_severity:Number(document.getElementById('minSeverity').value||0)};
+  const js=await qfaFetchJson('/api/compute-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  CURRENT={report:js.report,metadata};renderAll();status('Done.');
+}catch(err){console.error(err);showUserError(err)}}
 
 function getKpiToneForImpact(v){if(v<=-0.20)return 'border-left:6px solid #C73E1D'; if(v< -0.05)return 'border-left:6px solid #F39C12'; return 'border-left:6px solid #6A994E'}
 function plotStressRanking(r){
@@ -806,7 +855,7 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 pass
     frames: List[pd.Series] = []
     errors: List[str] = []
-    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "6"))
+    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "4"))
     for batch_start in range(0, len(all_tickers), batch_size):
         batch = all_tickers[batch_start:batch_start + batch_size]
         data = pd.DataFrame()
