@@ -1,12 +1,12 @@
-# QFA Prime — BIST Stable FX-Aware Build
+# QFA Prime Correct Charts Final - Render Deploy
 
-This build keeps the institutional daily-return kernel and adds BIST-stable Yahoo fetching.
+This package is FastAPI/HTML/Plotly, optimized for Render.
 
 ## Render Settings
 
 Build Command:
 ```bash
-pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
+pip install --upgrade pip setuptools wheel && pip install --only-binary=:all: -r requirements.txt
 ```
 
 Start Command:
@@ -14,19 +14,22 @@ Start Command:
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-Important environment variables:
+Environment variables:
 ```text
 PYTHON_VERSION=3.11.9
 QFA_OUTPUT_DIR=/tmp/qfa_output
-QFA_YF_BATCH_SIZE=4
-QFA_YF_MAX_ATTEMPTS=2
-QFA_YF_TIMEOUT=14
-QFA_YF_PAUSE_SECONDS=0.35
 ```
 
-## Notes
+## Data policy
+- Yahoo Finance only
+- Daily interval only
+- No synthetic data
+- No benchmark proxy fallback
+- All time-series charts use daily return derived point arrays
 
-- No synthetic data.
-- BIST stocks are converted to USD using Yahoo daily USDTRY=X.
-- XU100 USD benchmark is built as XU100.IS / USDTRY=X.
-- XU100_USD is an internal benchmark column, not a Yahoo ticker.
+## Chart fixes in this build
+- VaR/CVaR/ES are positive loss figures, matching institutional reporting.
+- Dense daily time-series use clean line rendering, not thousands of markers.
+- Executive dashboard no longer mixes percentage and ratio metrics on one axis.
+- Drawdown remains a negative path-return series and is built from daily returns.
+
