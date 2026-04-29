@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: qfa-prime-platform
+    name: qfa-prime-global-render-safe
     env: python
     plan: free
     buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
@@ -11,14 +11,24 @@ services:
       - key: QFA_OUTPUT_DIR
         value: /tmp/qfa_output
       - key: QFA_AUTO_INSTALL_REQUIRED
-        value: "0"
-      - key: QFA_INSTALL_OPTIONAL
-        value: "0"
+        value: 0
+      - key: QFA_RENDER_SAFE_MODE
+        value: 1
+      - key: QFA_MAX_SELECTED_TICKERS
+        value: 12
       - key: QFA_YF_BATCH_SIZE
-        value: "4"
+        value: 4
       - key: QFA_YF_MAX_ATTEMPTS
-        value: "2"
+        value: 2
       - key: QFA_YF_TIMEOUT
-        value: "14"
+        value: 16
       - key: QFA_YF_PAUSE_SECONDS
-        value: "0.35"
+        value: 0.35
+      - key: QFA_JOB_WORKERS
+        value: 1
+      - key: QFA_ENABLE_QUANTSTATS_HTML
+        value: 0
+      - key: QFA_FRONTIER_RANDOM_PORTFOLIOS
+        value: 250
+      - key: QFA_MC_PORTFOLIOS
+        value: 1000

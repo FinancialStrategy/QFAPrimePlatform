@@ -1,35 +1,24 @@
-# QFA Prime Correct Charts Final - Render Deploy
+# QFA Prime - Global Render Safe No-502 Build
 
-This package is FastAPI/HTML/Plotly, optimized for Render.
+This build is optimized for Render stability and Yahoo throttling control.
 
-## Render Settings
+## Key protections
+- Max 12 tickers per run by default.
+- Async server-side job polling.
+- Yahoo batch size 4.
+- Short retry/timeout settings.
+- Cache enabled.
+- QuantStats metrics remain active; full QuantStats HTML is disabled by default to reduce Render memory/timeouts.
+- No BIST/Turkey stock universe.
+- Yahoo Finance daily-only data.
+- No synthetic data and no upload fallback.
 
-Build Command:
+## Render build command
 ```bash
-pip install --upgrade pip setuptools wheel && pip install --only-binary=:all: -r requirements.txt
+pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
 ```
 
-Start Command:
+## Render start command
 ```bash
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
-
-Environment variables:
-```text
-PYTHON_VERSION=3.11.9
-QFA_OUTPUT_DIR=/tmp/qfa_output
-```
-
-## Data policy
-- Yahoo Finance only
-- Daily interval only
-- No synthetic data
-- No benchmark proxy fallback
-- All time-series charts use daily return derived point arrays
-
-## Chart fixes in this build
-- VaR/CVaR/ES are positive loss figures, matching institutional reporting.
-- Dense daily time-series use clean line rendering, not thousands of markers.
-- Executive dashboard no longer mixes percentage and ratio metrics on one axis.
-- Drawdown remains a negative path-return series and is built from daily returns.
-

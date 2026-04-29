@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-QFA Prime Finance Platform - Institutional Colab PRO CHARTS UPGRADED Final
+QFA Prime Finance Platform - GLOBAL RENDER SAFE FINAL
 Author: MK FinTECH LabGEN@2026
 
 Colab usage:
@@ -182,6 +182,13 @@ CASH_LIKE = {"BIL", "SHY", "SGOV", "BILS", "GBIL"}
 BENCHMARK_SYMBOL = "^GSPC"
 BENCHMARK_LABEL = "S&P 500 Daily (^GSPC)"
 
+# Render-safe operating limits: designed to prevent 502 timeouts and Yahoo throttling.
+QFA_RENDER_SAFE_MODE = os.getenv("QFA_RENDER_SAFE_MODE", "1") == "1"
+QFA_MAX_SELECTED_TICKERS = int(os.getenv("QFA_MAX_SELECTED_TICKERS", "12"))
+QFA_ENABLE_QUANTSTATS_HTML = os.getenv("QFA_ENABLE_QUANTSTATS_HTML", "0") == "1"
+QFA_FRONTIER_RANDOM_PORTFOLIOS = int(os.getenv("QFA_FRONTIER_RANDOM_PORTFOLIOS", "250"))
+QFA_MC_PORTFOLIOS = int(os.getenv("QFA_MC_PORTFOLIOS", "1000"))
+
 # Turkish BIST FX-aware benchmark architecture
 # Turkish stocks are quoted in TRY on Yahoo Finance. For USD-consistent
 # institutional analytics, every .IS stock and XU100 benchmark level is
@@ -309,12 +316,13 @@ async function runInstitutionalJob(payload){
     if(js.status==='done'){return js;}
     if(js.status==='error'){throw new Error(js.message || js.error || 'Institutional report job failed.');}
     const elapsed=Math.round((Date.now()-t0)/1000);
-    status('Working server-side... '+elapsed+'s. Yahoo data can take longer on Render.');
+    status('Working server-side... '+elapsed+'s. Render Safe Mode: cache + small universe download.');
     if(elapsed>420){throw new Error('Server-side job timeout after 7 minutes. Try fewer tickers, then rerun to warm cache.');}
   }
 }
 
-const QFA_BUILD_ID = 'qfa_all_timeseries_daily_point_by_point_v1';
+const QFA_BUILD_ID = 'qfa_global_render_safe_no_502_v1';
+const QFA_MAX_SELECTED_TICKERS = 12;
 let ETF_UNIVERSE = {}; let CURRENT = null;
 function status(msg){document.getElementById('statusBox').textContent=msg} function showTab(tabId,btn){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById(tabId).classList.add('active');btn.classList.add('active');setTimeout(()=>window.dispatchEvent(new Event('resize')),120)}
 function fmtPct(v,d=2){return(v==null||isNaN(v))?'—':(v*100).toFixed(d)+'%'}
@@ -384,10 +392,10 @@ async function getYahooRows(tickers){
   return await qfaFetchJson('/api/yahoo-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
 }
 async function recompute(){try{
-  status('Working: downloading Yahoo daily series and computing report on the server...');
+  status('Queued: Render Safe Mode job is running server-side. Keep this page open.');
   const tickers=selectedTickers();
   if(tickers.length<3){alert('Please select at least 3 instruments.');status('Ready.');return}
-  if(tickers.length>45 && !confirm('You selected '+tickers.length+' instruments. Yahoo may throttle large universes. Continue?')){status('Ready.');return}
+  if(tickers.length>QFA_MAX_SELECTED_TICKERS){alert('Render Safe Mode: please select at most '+QFA_MAX_SELECTED_TICKERS+' tickers per run. This prevents Yahoo throttling and Render 502 errors. Run smaller groups to warm cache, then expand later.');status('Ready.');return}
   const benchmark=enforceBenchmarkForSelection(tickers);
   const payload={
     tickers:tickers,
@@ -497,6 +505,8 @@ class YahooPricesRequest(BaseModel):
                 out.append(t)
         if len(out) < 3:
             raise ValueError("Select at least 3 unique tickers.")
+        if len(out) > QFA_MAX_SELECTED_TICKERS:
+            raise ValueError(f"Render Safe Mode allows at most {QFA_MAX_SELECTED_TICKERS} tickers per run to avoid Yahoo throttling and 502 timeouts.")
         return out
 
     @validator("start_date")
@@ -1009,10 +1019,10 @@ def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str
                 pass
     frames: List[pd.Series] = []
     errors: List[str] = []
-    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "4" if has_bist else "8"))
-    max_attempts = int(os.getenv("QFA_YF_MAX_ATTEMPTS", "2" if has_bist else "3"))
-    yf_timeout = int(os.getenv("QFA_YF_TIMEOUT", "14" if has_bist else "25"))
-    yf_pause = float(os.getenv("QFA_YF_PAUSE_SECONDS", "0.35" if has_bist else "0.75"))
+    batch_size = int(os.getenv("QFA_YF_BATCH_SIZE", "4"))
+    max_attempts = int(os.getenv("QFA_YF_MAX_ATTEMPTS", "2"))
+    yf_timeout = int(os.getenv("QFA_YF_TIMEOUT", "16"))
+    yf_pause = float(os.getenv("QFA_YF_PAUSE_SECONDS", "0.35"))
     for batch_start in range(0, len(all_tickers), batch_size):
         batch = all_tickers[batch_start:batch_start + batch_size]
         data = pd.DataFrame()
@@ -1857,7 +1867,7 @@ def compute_efficient_frontier_payload(returns: pd.DataFrame, weights: pd.Series
         except Exception as exc:
             status["pypfopt_status"] = f"available, max-sharpe fallback used: {str(exc)[:100]}"
     n = len(assets)
-    for i in range(700):
+    for i in range(QFA_FRONTIER_RANDOM_PORTFOLIOS):
         raw = rng.dirichlet(np.ones(n))
         w = normalize_weights(pd.Series(raw, index=assets), cap=MAX_SINGLE_WEIGHT)
         ret = float(w @ mu.loc[w.index])
@@ -1890,7 +1900,7 @@ def compute_monte_carlo_frontier_payload(returns: pd.DataFrame, rf: float, cov_m
     rng = np.random.default_rng(42)
     rows = []
     n = len(assets)
-    for i in range(int(min(max(trials, 500), 5000))):
+    for i in range(int(min(max(trials, 300), QFA_MC_PORTFOLIOS))):
         raw = rng.random(n)
         raw = raw / raw.sum()
         w = normalize_weights(pd.Series(raw, index=assets), cap=MAX_SINGLE_WEIGHT)
@@ -1917,7 +1927,7 @@ def compute_relative_frontier_payload(returns: pd.DataFrame, bench_ret: pd.Serie
     rows = []
     n = len(assets)
     bench_ann = annualized_return(b)
-    for i in range(int(min(max(trials, 300), 3000))):
+    for i in range(int(min(max(trials, 200), QFA_MC_PORTFOLIOS))):
         raw = rng.random(n)
         raw = raw / raw.sum()
         w = normalize_weights(pd.Series(raw, index=assets), cap=MAX_SINGLE_WEIGHT)
@@ -1985,18 +1995,21 @@ def compute_quantstats_payload(pr: pd.Series, bench_ret: pd.Series, rolling_wind
             ])
         except Exception as exc:
             qs_status = f"quantstats imported; selected stats fallback used: {str(exc)[:160]}"
-        try:
-            QUANTSTATS_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
-            qs.reports.html(returns=pr, benchmark=bench_ret, rf=rf, title="QFA Quantstats Tearsheet — Portfolio vs S&P 500 Daily", output=str(QUANTSTATS_HTML_PATH), compounded=True, periods_per_year=TRADING_DAYS, download_filename=str(QUANTSTATS_HTML_PATH))
-            qs_html_url = f"/api/quantstats-html?ts={int(time.time())}"
-            qs_status = qs_status + "; full quantstats HTML generated"
-        except Exception:
+        if QFA_ENABLE_QUANTSTATS_HTML:
             try:
-                qs.reports.html(pr, benchmark=bench_ret, output=str(QUANTSTATS_HTML_PATH), title="QFA Quantstats Tearsheet")
+                QUANTSTATS_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
+                qs.reports.html(returns=pr, benchmark=bench_ret, rf=rf, title="QFA Quantstats Tearsheet — Portfolio vs S&P 500 Daily", output=str(QUANTSTATS_HTML_PATH), compounded=True, periods_per_year=TRADING_DAYS, download_filename=str(QUANTSTATS_HTML_PATH))
                 qs_html_url = f"/api/quantstats-html?ts={int(time.time())}"
-                qs_status = qs_status + "; full quantstats HTML generated via minimal signature"
-            except Exception as exc2:
-                qs_status = qs_status + f"; full HTML failed: {str(exc2)[:180]}"
+                qs_status = qs_status + "; full quantstats HTML generated"
+            except Exception:
+                try:
+                    qs.reports.html(pr, benchmark=bench_ret, output=str(QUANTSTATS_HTML_PATH), title="QFA Quantstats Tearsheet")
+                    qs_html_url = f"/api/quantstats-html?ts={int(time.time())}"
+                    qs_status = qs_status + "; full quantstats HTML generated via minimal signature"
+                except Exception as exc2:
+                    qs_status = qs_status + f"; full HTML failed: {str(exc2)[:180]}"
+        else:
+            qs_status = qs_status + "; full HTML disabled by Render Safe Mode (QFA_ENABLE_QUANTSTATS_HTML=0); Plotly mirrors and QS metrics remain active"
     if not qs_rows:
         den = pr.std() * np.sqrt(TRADING_DAYS)
         qs_rows = [
@@ -2350,6 +2363,8 @@ def _run_institutional_report_core(payload: Dict[str, Any]) -> Dict[str, Any]:
     tickers = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
     if len(tickers) < 3:
         raise ValueError("Please select at least 3 instruments.")
+    if len(tickers) > QFA_MAX_SELECTED_TICKERS:
+        raise ValueError(f"Render Safe Mode allows at most {QFA_MAX_SELECTED_TICKERS} tickers per run. This prevents Render 502/Yahoo throttling.")
     start_date = str(payload.get("start_date") or "2019-01-01")
     benchmark_symbol = normalize_benchmark_symbol(payload.get("benchmark_symbol", BENCHMARK_SYMBOL))
     if any(_is_turkish_bist_ticker(t) for t in tickers):
