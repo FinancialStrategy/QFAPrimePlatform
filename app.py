@@ -21,6 +21,8 @@ import time
 import math
 import socket
 import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 import warnings
 import datetime as _dt
 import decimal as _decimal
@@ -230,16 +232,6 @@ ETF_UNIVERSE = {
     "US Sectors": ["XLK", "XLF", "XLV", "XLE", "XLI", "XLP", "XLY", "XLU", "XLB", "XLC", "XLRE"],
     "International Developed": ["VEA", "IEFA", "EFA", "VGK", "EWJ", "EWG", "EWU", "EWC"],
     "Emerging Markets": ["VWO", "IEMG", "EEM", "EWZ", "INDA", "FXI", "MCHI", "EWT", "EIDO", "EPOL", "EZA", "EPI"],
-    "Turkey & EMEA": ["TUR", "GULF", "QDV5.DE", "DBXK.DE", "DX2J.DE", "IS3N.DE"],
-    "Türkiye BIST": [
-        "AKBNK.IS", "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "BIMAS.IS",
-        "EKGYO.IS", "ENKAI.IS", "EREGL.IS", "FROTO.IS", "GARAN.IS",
-        "GUBRF.IS", "HALKB.IS", "ISCTR.IS", "KCHOL.IS", "KRDMD.IS",
-        "PETKM.IS", "PGSUS.IS", "SAHOL.IS", "SASA.IS", "SISE.IS",
-        "TAVHL.IS", "TCELL.IS", "THYAO.IS", "TOASO.IS", "TUPRS.IS",
-        "YKBNK.IS", "AEFES.IS", "MGROS.IS", "TTKOM.IS", "ULKER.IS",
-        "ANHYT.IS", "TURSG.IS", "ADEL.IS", "ALKLC.IS", "ALTNY.IS"
-    ],
     "EUR UCITS": ["SXR8.DE", "EUNL.DE", "VWCE.DE", "IUSQ.DE", "EXSA.DE", "XDAX.DE", "IQQE.DE", "VUSA.L", "VEVE.L", "VUAA.L", "CSPX.L", "IWDA.AS", "EMIM.L", "AGGH.L", "IEAC.L", "IGLN.L", "EUNA.DE", "XESC.DE", "XG7S.DE", "QDVX.DE", "SPPW.DE", "XDWD.DE", "XDWL.DE", "XMME.DE", "VJPN.DE", "VWCG.DE", "VETY.DE", "VDTA.DE", "VGEA.DE", "EL4C.DE"],
     "Fixed Income": ["AGG", "BND", "TLT", "IEF", "SHY", "LQD", "HYG", "MUB", "TIP", "BIL", "SGOV", "BILS"],
     "Real Assets": ["GLD", "IAU", "SLV", "DBC", "VNQ", "REET", "GSG", "PDBC"],
@@ -262,7 +254,7 @@ HTML_DOC = r'''<!DOCTYPE html>
 <noscript><div style="padding:24px;background:#fff3cd;color:#5c4100;font-family:Arial">JavaScript is disabled. Enable JavaScript to use QFA Prime.</div></noscript>
 <div id="bootBanner" style="padding:10px 16px;background:#10263f;color:white;font-family:Arial;font-size:13px">QFA Prime loading... If this message stays visible, Plotly CDN or browser JavaScript is being blocked, but backend is running.</div>
 <div class="shell"><aside class="sidebar"><div class="brand"><h1>QFA Prime Finance Platform</h1><p>Institutional single-file FastAPI + Plotly build optimized for Google Colab, Yahoo Finance, uploads, and benchmark-relative risk diagnostics.</p></div>
-<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option><option value="XU100_USD">XU100 Daily USD (XU100.IS / USDTRY=X)</option><option value="^XU100">XU100 Daily TRY (XU100.IS) - currency mismatch warning</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
+<div class="side-card"><h3>Core Controls</h3><div class="side-grid"><div><label>Benchmark</label><select id="benchmarkSymbol"><option value="^GSPC">S&amp;P 500 Daily USD (^GSPC)</option></select></div><div><label>Start Date</label><input type="date" id="startDate" value="2019-01-01"></div><div><label>Initial Capital</label><input type="number" id="initialCapital" value="1000000" step="1000"></div><div><label>Risk-Free Rate</label><input type="number" id="riskFreeRate" value="0.045" step="0.0001"></div><div><label>Rolling Window</label><input type="number" id="rollingWindow" value="63" step="1"></div></div></div>
 <div class="side-card"><h3>Portfolio Model Controls</h3><div class="side-grid"><div><label>Expected Return Method</label><select id="expReturnMethod"><option value="historical_mean">Historical Mean</option><option value="ema_historical">EMA Historical</option><option value="capm">CAPM-like Benchmark Beta</option></select></div><div><label>Covariance Method</label><select id="covMethod"><option value="ledoit_wolf">Ledoit-Wolf</option><option value="shrinkage">Shrinkage</option><option value="sample">Sample</option></select></div><div><label>Best Strategy Rule</label><select id="bestStrategyRule"><option value="highest_sharpe">Highest Sharpe</option><option value="lowest_tracking_error">Lowest Tracking Error</option><option value="highest_information_ratio">Highest Information Ratio</option><option value="minimum_volatility">Minimum Volatility</option></select></div></div></div>
 <div class="side-card"><h3>Stress Filters</h3><div class="side-grid"><div><label>Stress Family</label><select id="stressFamily"><option value="All">All</option><option value="crisis">crisis</option><option value="inflation">inflation</option><option value="banking stress">banking stress</option><option value="sharp rally">sharp rally</option><option value="sharp selloff">sharp selloff</option></select></div><div><label>Minimum Severity</label><input type="number" id="minSeverity" value="0" step="0.1"></div></div></div>
 <div class="side-card"><h3>Data Source Policy</h3><div class="side-grid"><div><label>Mode</label><input type="text" id="dataMode" value="Yahoo Finance Daily Only" readonly></div><div class="smallnote"><b>LOCKED:</b> Yahoo Finance adjusted daily prices only. Upload/synthetic/fallback price modes are disabled. Every chart is generated from portfolio DAILY RETURNS; no weekly/monthly resampling is allowed.</div></div></div>
@@ -283,15 +275,8 @@ HTML_DOC = r'''<!DOCTYPE html>
 <script>
 try{const b=document.getElementById('bootBanner'); if(b) b.style.display='none';}catch(e){}
 function selectedBenchmarkSymbol(){return document.getElementById('benchmarkSymbol').value || '^GSPC';}
-function hasTurkishSelection(tickers){return (tickers||[]).some(t=>String(t).toUpperCase().endsWith('.IS'))}
-function enforceBenchmarkForSelection(tickers){
-  const sel=document.getElementById('benchmarkSymbol');
-  if(hasTurkishSelection(tickers) && sel && sel.value !== 'XU100_USD'){
-    sel.value='XU100_USD';
-    status('Türkiye BIST detected: benchmark switched to XU100 Daily USD.');
-  }
-  return selectedBenchmarkSymbol();
-}
+function hasTurkishSelection(tickers){return false}
+function enforceBenchmarkForSelection(tickers){return selectedBenchmarkSymbol();}
 function cleanBackendError(raw){
   let s=String(raw||'Unknown error');
   if(s.includes('<!DOCTYPE html') || s.includes('<html')){
@@ -311,6 +296,22 @@ function showUserError(err){
   const msg=cleanBackendError(err && err.message ? err.message : err);
   status('Failed: '+msg.slice(0,180));
   alert(msg);
+}
+
+async function runInstitutionalJob(payload){
+  const started=await qfaFetchJson('/api/run-institutional-report-async',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const jobId=started.job_id;
+  if(!jobId){throw new Error('Server did not return a job id.');}
+  const t0=Date.now();
+  while(true){
+    await new Promise(resolve=>setTimeout(resolve, 2500));
+    const js=await qfaFetchJson('/api/job-status/'+encodeURIComponent(jobId));
+    if(js.status==='done'){return js;}
+    if(js.status==='error'){throw new Error(js.message || js.error || 'Institutional report job failed.');}
+    const elapsed=Math.round((Date.now()-t0)/1000);
+    status('Working server-side... '+elapsed+'s. Yahoo data can take longer on Render.');
+    if(elapsed>420){throw new Error('Server-side job timeout after 7 minutes. Try fewer tickers, then rerun to warm cache.');}
+  }
 }
 
 const QFA_BUILD_ID = 'qfa_all_timeseries_daily_point_by_point_v1';
@@ -356,7 +357,7 @@ function dailyMoneyTrace(points, valueKey, name, extra={}){const tr=dailyTrace(p
 function dailyLayout(title, ytitle, yfmt=null){const lay={title:title,xaxis:{title:'Daily trading date',type:'date',rangeslider:{visible:true},tickformat:'%Y-%m-%d',hoverformat:'%Y-%m-%d'},yaxis:{title:ytitle},hovermode:'x unified'}; if(yfmt) lay.yaxis.tickformat=yfmt; return lay}
 
 function plot(id,data,layout){if(typeof Plotly==='undefined'){document.getElementById(id).innerHTML='<div class="callout">Plotly CDN could not load. Backend and UI are running, but charts need internet/CDN access.</div>'; return;} Plotly.newPlot(id,data,Object.assign({paper_bgcolor:'white',plot_bgcolor:'white',font:{family:'Segoe UI, Arial',color:'#213043',size:12},margin:{l:74,r:42,t:70,b:82},legend:{orientation:'h',y:1.08,x:0.5,xanchor:'center'}},layout||{}),{responsive:true,displayModeBar:false})}
-function baseChartLayout(title, extra={}){return Object.assign({title:{text:title,x:0.5,font:{size:15}},paper_bgcolor:'white',plot_bgcolor:'white',font:{family:'Segoe UI, Arial',color:'#213043',size:12},margin:{l:78,r:55,t:78,b:88},legend:{orientation:'h',y:1.08,x:0.5,xanchor:'center'},hovermode:'x unified'},extra||{})}
+function baseChartLayout(title, extra={}){return Object.assign({title:{text:title,x:0.5,font:{size:15}},paper_bgcolor:'white',plot_bgcolor:'white',font:{family:'Segoe UI, Arial',color:'#213043',size:12},margin:{l:86,r:70,t:82,b:96},legend:{orientation:'h',y:1.10,x:0.5,xanchor:'center'},hovermode:'x unified',xaxis:{automargin:true,showgrid:true,gridcolor:'#e8eef5',zeroline:false},yaxis:{automargin:true,showgrid:true,gridcolor:'#e8eef5',zeroline:false},uirevision:'qfa-chart-stable'},extra||{})}
 function pointSeries(points,key){return (points||[]).filter(p=>p&&p.Date!==undefined&&p[key]!==undefined&&p[key]!==null&&!isNaN(Number(p[key]))).map(p=>({x:p.Date,y:Number(p[key])}))}
 function plotEquityCurve(r){const eq=pointSeries(r.equity_daily_points||[],'Portfolio Equity Value');const beq=pointSeries(r.benchmark_equity_daily_points||[],'Benchmark Equity Value');const s=r.summary||{};let ann=[];if(eq.length){const last=eq[eq.length-1];ann=[{x:0.02,y:0.95,xref:'paper',yref:'paper',text:`Initial: ${fmtMoney(r.meta.initial_capital)} → Final: ${fmtMoney(s.final_value)}<br>Total return: ${fmtPct((s.final_value/r.meta.initial_capital)-1)}`,showarrow:false,bgcolor:'rgba(255,255,255,.86)',bordercolor:'#2E86AB',borderwidth:1,font:{size:11}}]}plot('equityPlot',[{type:'scatter',mode:'lines',name:`${r.meta.best_strategy} Portfolio`,x:eq.map(p=>p.x),y:eq.map(p=>p.y),line:{width:2.4,color:'#2E86AB'},fill:'tozeroy',fillcolor:'rgba(46,134,171,.10)',hovertemplate:'%{x}<br>Portfolio: $%{y:,.0f}<extra></extra>'},{type:'scatter',mode:'lines',name:`Benchmark (${r.meta.benchmark})`,x:beq.map(p=>p.x),y:beq.map(p=>p.y),line:{width:1.7,color:'#E74C3C',dash:'dash'},hovertemplate:'%{x}<br>Benchmark: $%{y:,.0f}<extra></extra>'}],baseChartLayout('Portfolio vs Benchmark Equity Curve — Daily Compounding',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Portfolio Value',tickprefix:'$'},annotations:ann}))}
 function plotDrawdown(r){const dd=pointSeries(r.drawdown_daily_points||[],'Portfolio Daily Drawdown');const bd=pointSeries(r.benchmark_drawdown_daily_points||[],'Benchmark Daily Drawdown');let minP=dd.reduce((a,b)=>b.y<a.y?b:a,{x:null,y:0});let annotations=minP.x?[{x:minP.x,y:minP.y,text:`Max DD: ${fmtPct(minP.y)}`,showarrow:true,arrowhead:2,arrowcolor:'#E74C3C',bgcolor:'rgba(255,255,255,.85)',font:{size:11}}]:[];plot('drawdownPlot',[{type:'scatter',mode:'lines',fill:'tozeroy',name:`${r.meta.best_strategy} Drawdown`,x:dd.map(p=>p.x),y:dd.map(p=>p.y),line:{color:'#E74C3C',width:1.6},fillcolor:'rgba(231,76,60,.30)',hovertemplate:'%{x}<br>Portfolio DD: %{y:.2%}<extra></extra>'},{type:'scatter',mode:'lines',name:'Benchmark Drawdown',x:bd.map(p=>p.x),y:bd.map(p=>p.y),line:{color:'#95A5A6',width:1.3,dash:'dash'},hovertemplate:'%{x}<br>Benchmark DD: %{y:.2%}<extra></extra>'}],baseChartLayout('Drawdown Analysis — Daily Returns, No Resampling',{xaxis:{title:'Date',rangeslider:{visible:true}},yaxis:{title:'Drawdown',tickformat:'.0%'},annotations}))}
@@ -403,7 +404,7 @@ async function recompute(){try{
     stress_family:document.getElementById('stressFamily').value,
     min_severity:Number(document.getElementById('minSeverity').value||0)
   };
-  const js=await qfaFetchJson('/api/run-institutional-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const js=await runInstitutionalJob(payload);
   CURRENT={report:js.report,metadata:[]};renderAll();status('Done.');
 }catch(err){console.error(err);showUserError(err)}}
 
@@ -454,7 +455,7 @@ plot('strategyScatterPlot',[{type:'scatter',mode:'markers+text',x:rows.map(x=>x.
 document.getElementById('optimizerStatusBox').innerHTML=`<b>Optimizer engine:</b> ${r.meta.optimizer_engine||'Internal'}<br><b>PyPortfolioOpt status:</b> ${r.meta.pypfopt_status||'not reported'}<br><b>Input frequency:</b> daily returns only / daily-only calculation<br><b>Capital Market Line:</b> slope is based on selected portfolio Sharpe ratio and configured risk-free rate.`;
 renderTable('qsMetricsTable',r.quantstats_metrics);document.getElementById('qsStatusBox').innerHTML=`<b>Quantstats package status:</b> ${r.meta.quantstats_status||'not reported'}<br><b>Data alignment:</b> ${r.meta.data_alignment||'common sample'}<br><b>Daily audit:</b> ${(r.meta.daily_return_audit&&r.meta.daily_return_audit.return_observations)||'—'} observations; median gap ${(r.meta.daily_return_audit&&r.meta.daily_return_audit.median_gap_days)||'—'} days; lower-frequency aggregate used: false<br>Below: real quantstats HTML tearsheet when available, plus Plotly mirrors. All Quantstats and PyPortfolioOpt inputs are audited daily-return series; daily-only calculation is used.`;document.getElementById('qsHtmlFrameBox').innerHTML=(r.meta.quantstats_html_url?`<iframe src="${r.meta.quantstats_html_url}" style="width:100%;height:900px;border:1px solid #d9e4ef;border-radius:14px;background:white;"></iframe>`:`<div class="note">Full quantstats HTML was not generated in this runtime; using Plotly mirror charts below.</div>`);
 plot('dailyReturnHistPlot',[{type:'histogram',x:(r.portfolio_daily_return_points||[]).map(x=>x['Portfolio Daily Return']),nbinsx:80,marker:{color:'#2E86AB'}}],baseChartLayout('Daily Portfolio Return Distribution',{xaxis:{title:'Daily return',tickformat:'.1%'},yaxis:{title:'Frequency'}}));
-const prPts=r.portfolio_daily_return_points||[];const brPts=r.benchmark_daily_return_points||[];plot('dailyReturnTsPlot',[dailyPctTrace(prPts,'Portfolio Daily Return','Portfolio Daily Return',{line:{width:1.4,color:'#2E86AB'}}),dailyPctTrace(brPts,'Benchmark Daily Return','Benchmark Daily Return',{line:{width:1.1,color:'#E74C3C'},opacity:0.65})],baseChartLayout(`Portfolio and S&P 500 DAILY Returns — tick-by-tick trading days (${prPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Daily return',tickformat:'.1%'}}));
+const prPts=r.portfolio_daily_return_points||[];const brPts=r.benchmark_daily_return_points||[];plot('dailyReturnTsPlot',[dailyPctTrace(prPts,'Portfolio Daily Return','Portfolio Daily Return',{line:{width:1.4,color:'#2E86AB'}}),dailyPctTrace(brPts,'Benchmark Daily Return','Benchmark Daily Return',{line:{width:1.1,color:'#E74C3C'},opacity:0.65})],baseChartLayout(`Portfolio and Benchmark DAILY Returns — tick-by-tick trading days (${prPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Daily return',tickformat:'.1%'}}));
 const rvPts=r.rolling_volatility_daily_points||[];const arPts=r.active_return_daily_points||[];plot('rollingVolPlot',[dailyPctTrace(rvPts,'Rolling Annualized Volatility','Rolling Annualized Volatility',{line:{width:2,color:'#F39C12'}})],baseChartLayout(`Rolling Annualized Volatility — daily returns (${rvPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Volatility',tickformat:'.0%'}}));plot('activeReturnPlot',[dailyPctTrace(arPts,'Cumulative Active Return','Cumulative Active Return',{line:{width:2,color:'#27AE60'}})],baseChartLayout(`Cumulative Active Return vs S&P 500 — DAILY points only (${arPts.length} observations)`,{xaxis:{title:'Date'},yaxis:{title:'Cumulative active return',tickformat:'.0%'}}));document.getElementById('stressKpiGrid').innerHTML=`<div class="kpi-card" style="${getKpiToneForImpact(r.stress_kpis.worst_relative_return||0)}"><div class="kpi-label">Worst Scenario</div><div class="kpi-value">${r.stress_kpis.worst_scenario||'—'}</div><div class="kpi-sub">Impact: ${fmtPct(r.stress_kpis.worst_relative_return)}</div></div><div class="kpi-card" style="${(r.stress_kpis.average_severity||0)>=4?'border-left:6px solid #F39C12':'border-left:6px solid #6A994E'}"><div class="kpi-label">Avg Severity</div><div class="kpi-value">${fmtNum(r.stress_kpis.average_severity)}</div><div class="kpi-sub">Filtered scenarios</div></div><div class="kpi-card" style="${getKpiToneForImpact(r.stress_kpis.worst_drawdown||0)}"><div class="kpi-label">Worst Drawdown Proxy</div><div class="kpi-value">${fmtPct(r.stress_kpis.worst_drawdown)}</div><div class="kpi-sub">Scenario loss estimate</div></div><div class="kpi-card"><div class="kpi-label">Scenario Count</div><div class="kpi-value">${r.stress_kpis.count}</div><div class="kpi-sub">Red ${r.stress_kpis.red_count||0} • Amber ${r.stress_kpis.amber_count||0} • Green ${r.stress_kpis.green_count||0}</div></div>`;plotStressRanking(r);plotStressHeatmap(r)}
 document.getElementById('recomputeBtn').addEventListener('click',recompute);fetchUniverse();
 </script></body></html>'''
@@ -709,6 +710,12 @@ def api_ok(endpoint: str, payload: Dict[str, Any], saved_to: Optional[str] = Non
 app = FastAPI(title="QFA Prime Finance Platform - Institutional Colab", default_response_class=QFAJSONResponse)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+# Long Yahoo computations are executed as background jobs to avoid Render 502/gateway timeout.
+QFA_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv('QFA_JOB_WORKERS', '1')))
+QFA_JOBS: Dict[str, Dict[str, Any]] = {}
+QFA_JOB_LOCK = threading.Lock()
+
+
 @app.exception_handler(Exception)
 async def qfa_unhandled_exception_handler(request, exc: Exception):
     return qfa_response({"status": "error", "endpoint": str(getattr(request, "url", "")), "error": str(exc), "message": str(exc), "detail": exc.__class__.__name__, "hint": "Unhandled server error serialized by QFA hard JSON boundary."}, status_code=500, label="unhandled_exception")
@@ -775,6 +782,138 @@ def _cache_key(tickers: List[str], start_date: str) -> Path:
 
 
 
+def _symbol_cache_path(symbol: str, start_date: str) -> Path:
+    safe = str(symbol).replace('^', 'IDX').replace('.', '_').replace('=', '_').replace('/', '_')
+    return CACHE_DIR / f"symbol_daily_{safe}_{start_date}.csv"
+
+def _read_symbol_cache(symbol: str, start_date: str, max_age_hours: Optional[float] = None) -> Optional[pd.Series]:
+    max_age_hours = float(os.getenv('QFA_SYMBOL_CACHE_HOURS', str(max_age_hours or 168)))
+    path = _symbol_cache_path(symbol, start_date)
+    if not path.exists():
+        return None
+    try:
+        if (time.time() - path.stat().st_mtime) > max_age_hours * 3600:
+            return None
+        df = pd.read_csv(path)
+        if not {'Date', 'Close'}.issubset(df.columns):
+            return None
+        idx = pd.to_datetime(df['Date'], errors='coerce')
+        s = pd.Series(pd.to_numeric(df['Close'], errors='coerce').values, index=idx, name=symbol).dropna().sort_index()
+        s = s.loc[~s.index.duplicated(keep='last')]
+        if len(s) < 30:
+            return None
+        gaps = pd.Series(pd.DatetimeIndex(s.index)).diff().dt.days.dropna()
+        if len(gaps) and float(gaps.median()) > DAILY_MEDIAN_GAP_LIMIT_DAYS:
+            return None
+        return s
+    except Exception:
+        return None
+
+def _write_symbol_cache(symbol: str, start_date: str, series: pd.Series) -> None:
+    try:
+        s = series.dropna().sort_index()
+        if getattr(s.index, 'tz', None) is not None:
+            s.index = s.index.tz_localize(None)
+        pd.DataFrame({'Date': pd.to_datetime(s.index).strftime('%Y-%m-%d'), 'Close': s.astype(float).values}).to_csv(_symbol_cache_path(symbol, start_date), index=False)
+    except Exception:
+        pass
+
+def _download_one_yahoo_symbol_ultra(symbol: str, start_date: str, use_cache: bool = True) -> pd.Series:
+    """Ultra-stable single-symbol Yahoo downloader with disk cache. No synthetic fallback."""
+    symbol = str(symbol).strip().upper()
+    if symbol in {'^XU100', 'XU100'}:
+        candidates = [XU100_TRY_SYMBOL, '^XU100']
+    elif symbol == XU100_TRY_SYMBOL:
+        candidates = [XU100_TRY_SYMBOL, '^XU100']
+    else:
+        candidates = [symbol]
+    errors = []
+    for sym in candidates:
+        if use_cache:
+            cached = _read_symbol_cache(sym, start_date)
+            if cached is not None:
+                return cached.rename(symbol)
+        max_attempts = int(os.getenv('QFA_ULTRA_SYMBOL_ATTEMPTS', '2'))
+        timeout = int(os.getenv('QFA_ULTRA_SYMBOL_TIMEOUT', '12'))
+        pause = float(os.getenv('QFA_ULTRA_SYMBOL_PAUSE_SECONDS', '0.45'))
+        for attempt in range(max_attempts):
+            try:
+                data = yf.download(sym, start=start_date, interval='1d', auto_adjust=True, actions=False, progress=False, group_by='ticker', threads=False, timeout=timeout)
+                s = _extract_yahoo_close_series(data, sym, [sym])
+                if s is None or s.dropna().empty:
+                    s = _extract_close_from_download(data, sym) if '_extract_close_from_download' in globals() else None
+                if s is None or s.dropna().empty:
+                    errors.append(f"{sym}: no Close/Adj Close data")
+                    time.sleep(pause * (attempt + 1))
+                    continue
+                s = pd.to_numeric(s, errors='coerce').dropna().rename(symbol)
+                if getattr(s.index, 'tz', None) is not None:
+                    s.index = s.index.tz_localize(None)
+                s.index = pd.to_datetime(s.index).normalize()
+                s = s.loc[~s.index.duplicated(keep='last')].sort_index()
+                if len(s) < 30:
+                    errors.append(f"{sym}: too few observations ({len(s)})")
+                    continue
+                _write_symbol_cache(sym, start_date, s.rename(sym))
+                if sym != symbol:
+                    _write_symbol_cache(symbol, start_date, s.rename(symbol))
+                return s.rename(symbol)
+            except Exception as exc:
+                errors.append(f"{sym}: {exc}")
+                time.sleep(pause * (attempt + 1))
+    raise ValueError(f"Yahoo Finance failed for required daily symbol {symbol}. Synthetic fallback is forbidden. Details: {'; '.join(errors[-4:])}")
+
+def _load_yahoo_prices_ultra_stable(tickers: List[str], start_date: str, benchmark_symbol: str = BENCHMARK_SYMBOL, use_cache: bool = True) -> pd.DataFrame:
+    if any(str(t).upper().endswith(".IS") for t in tickers):
+        raise ValueError("Turkish BIST stocks are disabled in this stable build. Please use the Global ETF and multi-asset universes only.")
+    requested = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
+    if len(requested) < 3:
+        raise ValueError('No tickers selected or fewer than 3 tickers selected.')
+    has_bist = any(_is_turkish_bist_ticker(t) for t in requested)
+    bench = normalize_benchmark_symbol(benchmark_symbol)
+    required = [USDTRY_SYMBOL, XU100_TRY_SYMBOL] if has_bist else [bench]
+    symbols = [s for s in list(dict.fromkeys(requested + required)) if s not in {XU100_USD_BENCHMARK_SYMBOL, '^XU100_USD'}]
+    matrix_cache = _cache_key(symbols, start_date)
+    matrix_ttl = float(os.getenv('QFA_MATRIX_CACHE_HOURS', '24' if has_bist else '12'))
+    if use_cache and matrix_cache.exists() and (time.time() - matrix_cache.stat().st_mtime) < matrix_ttl * 3600:
+        try:
+            cached = pd.read_csv(matrix_cache)
+            if 'Date' in cached.columns and cached.shape[1] >= 4:
+                return cached
+        except Exception:
+            pass
+    frames = []
+    failures = {}
+    for sym in symbols:
+        try:
+            frames.append(_download_one_yahoo_symbol_ultra(sym, start_date, use_cache=use_cache))
+            time.sleep(float(os.getenv('QFA_ULTRA_SYMBOL_THROTTLE_SECONDS', '0.20' if has_bist else '0.08')))
+        except Exception as exc:
+            failures[sym] = str(exc)
+            if sym in required:
+                raise
+    if not frames:
+        raise ValueError('No usable Yahoo Finance daily price series returned. Synthetic fallback is disabled.')
+    prices = pd.concat(frames, axis=1).sort_index()
+    prices = prices.loc[:, ~prices.columns.duplicated()]
+    if has_bist:
+        prices, _fx_audit = _apply_bist_usd_conversion(prices, requested)
+    usable_assets = [c for c in requested if c in prices.columns and prices[c].notna().sum() >= 30]
+    if len(usable_assets) < 3:
+        raise ValueError(f"Too few usable assets after Yahoo daily cleanup: {usable_assets}. Failed symbols: {failures}. Synthetic/upload fallback is disabled.")
+    keep = list(usable_assets)
+    if has_bist:
+        if XU100_USD_BENCHMARK_SYMBOL not in prices.columns:
+            raise ValueError('BIST assets selected but XU100 USD benchmark was not created from XU100.IS / USDTRY=X.')
+        keep.append(XU100_USD_BENCHMARK_SYMBOL)
+    else:
+        if bench in prices.columns and bench not in keep:
+            keep.append(bench)
+    out = prices[list(dict.fromkeys(keep))].reset_index().rename(columns={prices.index.name or 'index': 'Date'})
+    out.to_csv(matrix_cache, index=False)
+    return out
+
+
 def _is_turkish_bist_ticker(ticker: Any) -> bool:
     return str(ticker).upper().endswith(".IS")
 
@@ -837,6 +976,10 @@ def _apply_bist_usd_conversion(prices: pd.DataFrame, requested: List[str]) -> Tu
     return prices, audit
 
 def load_yahoo_prices(tickers: List[str], start_date: str, benchmark_symbol: str = BENCHMARK_SYMBOL, use_cache: bool = False) -> pd.DataFrame:
+    if any(str(t).upper().endswith(".IS") for t in tickers):
+        raise ValueError("Turkish BIST stocks are disabled in this stable build. Please use the Global ETF and multi-asset universes only.")
+    if os.getenv('QFA_ULTRA_STABLE_MODE', '1') == '1':
+        return _load_yahoo_prices_ultra_stable(tickers, start_date, benchmark_symbol, use_cache=use_cache)
     requested = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
     bench = normalize_benchmark_symbol(benchmark_symbol)
     has_bist = any(_is_turkish_bist_ticker(t) for t in requested)
@@ -2114,7 +2257,7 @@ def root() -> Response:
 @app.get("/health")
 def health() -> Response:
     payload = {
-        "runtime": {"status": "ok", "output_dir": str(OUTPUT_DIR), "cache_dir": str(CACHE_DIR), "in_colab": IN_COLAB, "python": sys.version.split()[0]},
+        "runtime": {"status": "ok", "output_dir": str(OUTPUT_DIR), "cache_dir": str(CACHE_DIR), "in_colab": IN_COLAB, "python": sys.version.split()[0], "ultra_stable_mode": os.getenv("QFA_ULTRA_STABLE_MODE", "1")},
         "api": {"schema_version": "institutional-v1", "strict_json_serialization": True, "pydantic_validation": True, "endpoints": ["/api/universe", "/api/yahoo-prices", "/api/compute-report", "/api/quantstats-html"], "disabled_endpoints": ["/api/parse-upload"]},
         "categories": list(ETF_UNIVERSE.keys()),
     }
@@ -2200,38 +2343,83 @@ async def parse_upload(price_file: UploadFile = File(...), meta_file: Optional[U
         return api_error(endpoint, exc, hint="Use a wide file with Date plus price columns, or a long file with Date/Ticker/Close columns.")
 
 
+def _run_institutional_report_core(payload: Dict[str, Any]) -> Dict[str, Any]:
+    tickers = payload.get("tickers") or []
+    if isinstance(tickers, str):
+        tickers = [x.strip() for x in tickers.replace(";", ",").split(",") if x.strip()]
+    tickers = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
+    if len(tickers) < 3:
+        raise ValueError("Please select at least 3 instruments.")
+    start_date = str(payload.get("start_date") or "2019-01-01")
+    benchmark_symbol = normalize_benchmark_symbol(payload.get("benchmark_symbol", BENCHMARK_SYMBOL))
+    if any(_is_turkish_bist_ticker(t) for t in tickers):
+        benchmark_symbol = XU100_USD_BENCHMARK_SYMBOL
+    use_cache = bool(payload.get("use_cache", True))
+    prices = load_yahoo_prices(tickers, start_date, benchmark_symbol, use_cache=use_cache)
+    if prices.empty or prices.shape[1] < 4:
+        raise ValueError("Yahoo returned an insufficient price matrix after cleanup.")
+    compute_payload = dict(payload)
+    compute_payload.update({
+        "rows": json_safe(prices),
+        "benchmark_symbol": benchmark_symbol,
+        "data_source": "yahoo",
+        "source_interval": "1d",
+        "synthetic_data_allowed": False,
+        "lower_frequency_aggregate_allowed": False,
+    })
+    report = compute_institutional_report(prices, compute_payload)
+    safe_report = assert_json_serializable(report, "institutional_report")
+    out_path = OUTPUT_DIR / "computed_institutional_report.json"
+    out_path.write_text(json.dumps(qfa_json_content(safe_report, "computed_report_file"), ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+    return {"report": safe_report, "saved_to": str(out_path)}
+
+
+def _job_runner(job_id: str, payload: Dict[str, Any]) -> None:
+    try:
+        with QFA_JOB_LOCK:
+            QFA_JOBS[job_id].update({"status": "running", "message": "Downloading Yahoo daily data and computing report."})
+        result = _run_institutional_report_core(payload)
+        with QFA_JOB_LOCK:
+            QFA_JOBS[job_id].update({"status": "done", "message": "Done", "result": result, "finished_at": pd.Timestamp.utcnow().isoformat()})
+    except Exception as exc:
+        with QFA_JOB_LOCK:
+            QFA_JOBS[job_id].update({"status": "error", "message": str(exc), "error_type": exc.__class__.__name__, "finished_at": pd.Timestamp.utcnow().isoformat()})
+
+
+@app.post("/api/run-institutional-report-async")
+def run_institutional_report_async(payload: Dict[str, Any]) -> Response:
+    endpoint = "/api/run-institutional-report-async"
+    try:
+        job_id = uuid.uuid4().hex[:12]
+        with QFA_JOB_LOCK:
+            QFA_JOBS[job_id] = {"status": "queued", "message": "Queued", "created_at": pd.Timestamp.utcnow().isoformat()}
+        QFA_JOB_EXECUTOR.submit(_job_runner, job_id, dict(payload))
+        return api_ok(endpoint, {"job_id": job_id, "job_status_url": f"/api/job-status/{job_id}"}, note="Job queued. Poll job status to avoid Render 502 during long Yahoo requests.")
+    except Exception as exc:
+        return api_error(endpoint, exc, hint="Could not queue the institutional report job.")
+
+
+@app.get("/api/job-status/{job_id}")
+def job_status(job_id: str) -> Response:
+    endpoint = f"/api/job-status/{job_id}"
+    with QFA_JOB_LOCK:
+        job = dict(QFA_JOBS.get(job_id) or {})
+    if not job:
+        return api_error(endpoint, ValueError("Job not found"), status_code=404, hint="The job id expired or is invalid.")
+    if job.get("status") == "done":
+        result = job.get("result", {})
+        return api_ok(endpoint, {"status": "done", "report": result.get("report"), "saved_to": result.get("saved_to")}, note="Report completed.")
+    if job.get("status") == "error":
+        return qfa_response({"status": "error", "endpoint": endpoint, "message": job.get("message"), "detail": job.get("error_type"), "hint": "Yahoo may be throttling Render IPs. Retry after a few minutes or warm cache with fewer BIST tickers."}, status_code=200, label="job_error")
+    return api_ok(endpoint, {"status": job.get("status", "queued"), "message": job.get("message", "Working")}, note="Job is still running.")
+
+
 @app.post("/api/run-institutional-report")
 def run_institutional_report(payload: Dict[str, Any]) -> Response:
     endpoint = "/api/run-institutional-report"
     try:
-        tickers = payload.get("tickers") or []
-        if isinstance(tickers, str):
-            tickers = [x.strip() for x in tickers.replace(";", ",").split(",") if x.strip()]
-        tickers = list(dict.fromkeys([str(t).strip().upper() for t in tickers if str(t).strip()]))
-        if len(tickers) < 3:
-            raise ValueError("Please select at least 3 instruments.")
-        start_date = str(payload.get("start_date") or "2019-01-01")
-        benchmark_symbol = normalize_benchmark_symbol(payload.get("benchmark_symbol", BENCHMARK_SYMBOL))
-        if any(_is_turkish_bist_ticker(t) for t in tickers):
-            benchmark_symbol = XU100_USD_BENCHMARK_SYMBOL
-        use_cache = bool(payload.get("use_cache", True))
-        prices = load_yahoo_prices(tickers, start_date, benchmark_symbol, use_cache=use_cache)
-        if prices.empty or prices.shape[1] < 4:
-            raise ValueError("Yahoo returned an insufficient price matrix after cleanup.")
-        compute_payload = dict(payload)
-        compute_payload.update({
-            "rows": json_safe(prices),
-            "benchmark_symbol": benchmark_symbol,
-            "data_source": "yahoo",
-            "source_interval": "1d",
-            "synthetic_data_allowed": False,
-            "lower_frequency_aggregate_allowed": False,
-        })
-        report = compute_institutional_report(prices, compute_payload)
-        safe_report = assert_json_serializable(report, "institutional_report")
-        out_path = OUTPUT_DIR / "computed_institutional_report.json"
-        out_path.write_text(json.dumps(qfa_json_content(safe_report, "computed_report_file"), ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        return api_ok(endpoint, {"report": safe_report}, saved_to=str(out_path), note="Yahoo daily download and compute completed server-side to reduce client payload and 502 risk.")
+        result = _run_institutional_report_core(payload)
+        return api_ok(endpoint, {"report": result["report"]}, saved_to=result.get("saved_to"), note="Yahoo daily download and compute completed server-side.")
     except Exception as exc:
         return api_error(endpoint, exc, hint="If Yahoo throttles, retry after a few minutes or select fewer tickers; server-side cache remains enabled.")
 
